@@ -201,11 +201,8 @@ Feature: Admin-tools auth and its interplay with global auth
       | site_url | default |
     And the htpasswd file "default_admin_tools" should accept user "easyengine" with password "{ADMIN_PASS}"
 
-  @known-bug
   Scenario: The admin-tools password can be rotated with ee auth update global
-    # AUTH-18: the help example `ee auth update global --user=easyengine`
-    # fails with "Auth with username: easyengine does not exists on global" because update only
-    # looks at `default` rows, so the admin-tools password cannot be changed with ee.
+    # AUTH-18: the help example `ee auth update global --user=easyengine` used to fail, as update only looked at `default` rows.
     Given there is no global http auth
     And the admin-tools http auth exists
     When I run "bin/ee auth update global --user=easyengine --pass=bh-new-admin"
