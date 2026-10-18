@@ -1100,8 +1100,11 @@ class FeatureContext implements Context
 	public function theAuthFilesAreAsAnOlderAuthCommandWroteThem($site)
 	{
 		self::assert_prefixed_site( $site );
-		$row     = self::site_row( $site );
-		$aliases = empty( $row['alias_domains'] ) ? [] : explode( ',', $row['alias_domains'] );
+		$rows    = self::db_rows( 'SELECT alias_domains FROM sites WHERE site_url = ?', [ $site ] );
+		$aliases = empty( $rows[0]['alias_domains'] ) ? [] : explode( ',', $rows[0]['alias_domains'] );
+		if ( empty( $aliases ) ) {
+			throw new Exception( "Site $site has no alias domains." );
+		}
 		foreach ( $aliases as $alias ) {
 			$name = 0 === strpos( $alias, '*.' ) ? '_wildcard.' . substr( $alias, 2 ) : $alias;
 			if ( '' === $name || false !== strpbrk( $name, "/\\" ) ) {
@@ -1109,6 +1112,10 @@ class FeatureContext implements Context
 			}
 			@unlink( EE_ROOT_DIR . '/services/nginx-proxy/htpasswd/' . $name );
 			@unlink( EE_ROOT_DIR . '/services/nginx-proxy/vhost.d/' . $name . '_acl' );
+			clearstatcache();
+			if ( file_exists( EE_ROOT_DIR . '/services/nginx-proxy/htpasswd/' . $name ) ) {
+				throw new Exception( "Could not remove htpasswd/$name." );
+			}
 		}
 		self::reload_proxy();
 	}
