@@ -194,16 +194,21 @@ Feature: Global HTTP auth and global IP whitelist
       """
 
   Scenario: Global list shows the global users
-    Given I run "bin/ee auth create global --user=bh-g1 --pass=bh-g1-pass"
+    Given there is no admin-tools http auth
+    And I run "bin/ee auth create global --user=bh-g1 --pass=bh-g1-pass"
     And I run "bin/ee auth create global --user=bh-g2 --pass=bh-g2-pass"
     When I run "bin/ee auth list global --format=json"
     Then the command should succeed
+    And the JSON output should have 2 items
     And the JSON output should contain items:
       | site_url    | username | password   |
       | Global Auth | bh-g1    | bh-g1-pass |
       | Global Auth | bh-g2    | bh-g2-pass |
     When I run "bin/ee auth list global --format=count"
-    Then the command should succeed
+    Then STDOUT should be exactly:
+      """
+      2
+      """
     When I run "bin/ee auth list bh-auth-command-9.test --format=json"
     Then the JSON output should contain items:
       | site_url    | username |
@@ -230,7 +235,7 @@ Feature: Global HTTP auth and global IP whitelist
 
   @known-bug
   Scenario: A site list works when there is neither global nor admin-tools auth
-    # Suspected new bug (proposed AUTH-16): list() errors "Auth does not exists on global." before
+    # AUTH-16: list() errors "Auth does not exists on global." before
     # looking at the site's own users, so a site's users cannot be listed without global auth.
     Given there is no admin-tools http auth
     And I run "bin/ee auth create bh-auth-command-9.test --user=bh-s1 --pass=bh-s1-pass"

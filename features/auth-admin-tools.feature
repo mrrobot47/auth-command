@@ -181,7 +181,7 @@ Feature: Admin-tools auth and its interplay with global auth
 
   @known-bug
   Scenario: A rejected global create leaves the admin-tools auth untouched
-    # Suspected new bug (proposed AUTH-17): create_auth() converts the admin-tools row to `default`
+    # AUTH-17: create_auth() converts the admin-tools row to `default`
     # and saves it BEFORE Auth::create() validates the user name, so a failing create still
     # rewrites the DB (and leaves htpasswd/default_admin_tools out of sync with it).
     Given there is no global http auth
@@ -201,7 +201,7 @@ Feature: Admin-tools auth and its interplay with global auth
 
   @known-bug
   Scenario: Global create with the admin-tools user name is rejected without side effects
-    # Suspected new bug (proposed AUTH-17, same root cause): the admin-tools row is converted to
+    # AUTH-17 (same root cause): the admin-tools row is converted to
     # `default` first, so validation then rejects `easyengine` as a duplicate of itself.
     Given there is no global http auth
     And the admin-tools http auth exists
@@ -214,7 +214,7 @@ Feature: Admin-tools auth and its interplay with global auth
 
   @known-bug
   Scenario: The admin-tools password can be rotated with ee auth update global
-    # Suspected new bug (proposed AUTH-18): the help example `ee auth update global --user=easyengine`
+    # AUTH-18: the help example `ee auth update global --user=easyengine`
     # fails with "Auth with username: easyengine does not exists on global" because update only
     # looks at `default` rows, so the admin-tools password cannot be changed with ee.
     Given there is no global http auth
@@ -249,9 +249,9 @@ Feature: Admin-tools auth and its interplay with global auth
 
   @admin-tools
   Scenario: Admin-tools pages on a site ask for the admin-tools credentials
-    # Needs network access (admin-tools downloads phpMyAdmin and friends). Unverified expectation:
-    # the proxy template only emits a separate /ee-admin/ location when the vhost has containers
-    # with VIRTUAL_PATH (mailhog), so without mailhog this may expose that /ee-admin/ is unprotected.
+    # Needs network access (admin-tools downloads phpMyAdmin and friends). Every site's nginx
+    # container sets VIRTUAL_PATH=/, so the proxy always emits the /ee-admin/ location with
+    # htpasswd/default_admin_tools (the suspected AUTH-20 was refuted).
     Given the php site "bh-auth-command-11.test" exists
     And there is no global http auth
     And the admin-tools http auth exists

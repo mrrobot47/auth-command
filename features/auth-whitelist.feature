@@ -93,6 +93,7 @@ Feature: Site-scoped IP whitelists
       | create     | 192.0.2.1/24/8        |
       | update     | 192.0.2.300           |
       | update     | ,192.0.2.1            |
+      | delete     | 999.1.1.1             |
 
   Scenario: Consecutive separators are collapsed
     When I run "bin/ee auth create bh-auth-command-3.test --ip='192.0.2.1,,  192.0.2.2'"
@@ -102,9 +103,11 @@ Feature: Site-scoped IP whitelists
 
   @known-bug
   Scenario Outline: An invalid CIDR prefix is rejected instead of breaking nginx
-    # Suspected new bug (proposed AUTH-13): only the address part before "/" is validated, so the
+    # AUTH-13: only the address part before "/" is validated, so the
     # prefix is written verbatim into the _acl file, `nginx -t` fails and every later proxy reload
-    # (for all sites) is skipped until the entry is removed.
+    # (for all sites) is skipped until the entry is removed. The site user makes the proxy include
+    # the _acl file; the context removes it (and reloads) after the scenario.
+    Given I run "bin/ee auth create bh-auth-command-3.test --user=bh-u1 --pass=bh-p1"
     When I run "bin/ee auth create bh-auth-command-3.test --ip=<ip>"
     Then the command should fail
     And STDERR should not contain:
@@ -122,7 +125,7 @@ Feature: Site-scoped IP whitelists
 
   @known-bug
   Scenario: A duplicated IP in one create list is stored once
-    # Suspected new bug (proposed AUTH-14): create_whitelist() inserts every entry, so the
+    # AUTH-14: create_whitelist() inserts every entry, so the
     # UNIQUE(site_url, ip) constraint throws an uncaught PDOException after the first row was
     # written, and the _acl file is never generated.
     When I run "bin/ee auth create bh-auth-command-3.test --ip=192.0.2.1,192.0.2.1"
@@ -138,7 +141,7 @@ Feature: Site-scoped IP whitelists
 
   @known-bug
   Scenario: Whitelist commands report success
-    # Suspected new bug (proposed AUTH-15, cosmetic): create/update/delete with --ip print nothing on success.
+    # AUTH-15 (cosmetic): create/update/delete with --ip print nothing on success.
     When I run "bin/ee auth create bh-auth-command-3.test --ip=192.0.2.1"
     Then STDOUT should contain:
       """
@@ -227,7 +230,8 @@ Feature: Site-scoped IP whitelists
       | site_url | bh-auth-command-3.test |
 
   Scenario: After removing the whole site whitelist the _acl file keeps only global IPs
-    # With a non-empty global whitelist the file is regenerated with the global IPs only (see AUTH-10).
+    # With a non-empty global whitelist the file is regenerated with the global IPs only (see AUTH-10);
+    # #57 removes the file instead, so this scenario changes when #57 lands.
     Given the frontend subnet is globally whitelisted
     And I run "bin/ee auth create bh-auth-command-3.test --ip=192.0.2.1"
     When I run "bin/ee auth delete bh-auth-command-3.test --ip"

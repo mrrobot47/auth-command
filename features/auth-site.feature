@@ -364,7 +364,7 @@ Feature: Site-scoped HTTP auth users
 
   @known-bug
   Scenario Outline: Passwords with shell metacharacters work end to end
-    # Suspected new bug (proposed AUTH-12): user and password are interpolated unquoted into
+    # AUTH-12 (passes with #57): user and password are interpolated unquoted into
     # `docker exec … htpasswd -b<c> <file> <user> <pass>` and the exit status is ignored, so the DB
     # gets the password while htpasswd gets a mangled one (or none) and "Success" is printed.
     When I run "bin/ee auth create bh-auth-command-1.test --user=bh-meta <pass_arg>"

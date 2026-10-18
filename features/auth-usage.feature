@@ -133,12 +133,15 @@ Feature: ee auth command surface, argument validation and site resolution
       """
     And the auth_users table should not contain a row with:
       | site_url | bh-auth-command-13.test |
+    And the auth_ips table should not contain a row with:
+      | site_url | bh-auth-command-13.test |
 
     Examples:
       | subcommand | args                      |
       | create     | --user=bh-u1 --pass=bh-p1 |
       | create     | --ip=192.0.2.1            |
       | update     | --user=bh-u1 --pass=bh-p1 |
+      | update     | --ip=192.0.2.1            |
       | delete     | --user=bh-u1              |
       | delete     | --ip                      |
       | list       | --format=json             |
