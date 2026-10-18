@@ -1102,12 +1102,13 @@ class FeatureContext implements Context
 		self::assert_prefixed_site( $site );
 		$rows    = self::db_rows( 'SELECT alias_domains FROM sites WHERE site_url = ?', [ $site ] );
 		$aliases = empty( $rows[0]['alias_domains'] ) ? [] : explode( ',', $rows[0]['alias_domains'] );
-		if ( empty( $aliases ) ) {
+		if ( count( $aliases ) < 2 ) {
 			throw new Exception( "Site $site has no alias domains." );
 		}
 		foreach ( $aliases as $alias ) {
 			$name = 0 === strpos( $alias, '*.' ) ? '_wildcard.' . substr( $alias, 2 ) : $alias;
-			if ( '' === $name || false !== strpbrk( $name, "/\\" ) ) {
+			// alias_domains also lists the site itself, whose files older releases did write.
+			if ( '' === $name || $site === $name || false !== strpbrk( $name, "/\\" ) ) {
 				continue;
 			}
 			@unlink( EE_ROOT_DIR . '/services/nginx-proxy/htpasswd/' . $name );
