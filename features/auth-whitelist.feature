@@ -122,12 +122,13 @@ Feature: Site-scoped IP whitelists
       | site_url | bh-auth-command-3.test |
 
     Examples:
-      | ip             |
-      | 192.0.2.1/abc  |
-      | 192.0.2.1/99   |
-      | 2001:db8::/200 |
-      | /99            |
-      | 192.0.2.1/024  |
+      | ip                   |
+      | 192.0.2.1/abc        |
+      | 192.0.2.1/99         |
+      | 2001:db8::/200       |
+      | /99                  |
+      | 192.0.2.1/024        |
+      | 2001:db8:1:2:3:4:5:: |
 
   Scenario: An invalid entry stored by an older version is skipped, and can still be deleted
     # AUTH-13 safety net: rows stored before the fix must not end up in the _acl file nginx loads.
