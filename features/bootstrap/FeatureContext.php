@@ -422,7 +422,6 @@ class FeatureContext implements Context
 	public static function cleanup(AfterFeatureScope $scope)
 	{
 		self::cleanup_prefixed_sites();
-		self::cleanup_leftover_global_test_auth();
 
 		if(file_exists('ee.phar')) {
 			unlink('ee.phar');
@@ -453,33 +452,51 @@ class FeatureContext implements Context
 	/** @var string[] Tags of the running scenario, feature tags included. */
 	private $scenario_tags = [];
 
-	/** @var array|null Global auth state captured before a @destructive scenario. */
+	/** @var array|null Auth state captured before a @destructive scenario. */
 	private $global_auth_snapshot = null;
 
 	/**
+	 * Puts back a snapshot an interrupted run left behind, then snapshots the auth state before a
+	 * @destructive scenario (and its Background) runs. The snapshot is also written to disk until
+	 * it has been restored, so a killed run or a failed restore is repaired by the next scenario.
+	 *
 	 * @BeforeScenario
 	 */
 	public function rememberScenarioState(BeforeScenarioScope $scope)
 	{
 		$this->scenario_tags = array_merge( $scope->getFeature()->getTags(), $scope->getScenario()->getTags() );
+
+		$pending = self::read_pending_snapshot();
+		if ( null !== $pending ) {
+			fwrite( STDERR, sprintf( "Restoring the auth state saved at %s in %s (left by an interrupted run or a failed restore).\n", $pending['time'], self::snapshot_file() ) );
+			self::restore_auth_state( $pending );
+		}
+
 		if ( in_array( 'destructive', $this->scenario_tags, true ) ) {
-			$this->global_auth_snapshot = self::global_auth_state();
+			$this->global_auth_snapshot = self::capture_auth_state();
+			self::write_pending_snapshot( $this->global_auth_snapshot );
+		} else {
+			self::assert_no_global_auth_commands( $scope );
 		}
 	}
 
 	/**
-	 * Resets auth on this suite's sites, then restores the global auth state for @destructive scenarios.
+	 * Removes the auth rows and files of this suite's sites, then restores the snapshot of a
+	 * @destructive scenario. Neither depends on the code under test.
 	 *
 	 * @AfterScenario
 	 */
 	public function resetAuthState(AfterScenarioScope $scope)
 	{
-		foreach ( self::prefixed_sites_with_auth_rows() as $site ) {
-			self::reset_site_auth( $site );
-		}
 		if ( null !== $this->global_auth_snapshot ) {
-			self::restore_global_auth_state( $this->global_auth_snapshot );
+			$snapshot                   = $this->global_auth_snapshot;
 			$this->global_auth_snapshot = null;
+			self::restore_auth_state( $snapshot );
+
+			return;
+		}
+		if ( self::reset_test_sites_auth() ) {
+			self::reload_proxy();
 		}
 	}
 
@@ -738,28 +755,31 @@ class FeatureContext implements Context
 	/* ----------------------------- Auth state ---------------------------- */
 
 	/**
+	 * Removes the site's rows and files directly, without the code under test.
+	 *
 	 * @Given the site :site has no http auth or whitelist
 	 */
 	public function theSiteHasNoHttpAuthOrWhitelist($site)
 	{
 		self::assert_prefixed_site( $site );
-		self::reset_site_auth( $site );
+		if ( self::reset_test_sites_auth( $site ) ) {
+			self::reload_proxy();
+		}
 	}
 
 	/**
-	 * Deletes every global (`default`) auth user through `ee auth delete global`.
+	 * Removes every global (`default`) auth row and htpasswd/default directly. Files of other sites
+	 * with own users keep the global users until the scenario's state is restored.
 	 *
 	 * @Given there is no global http auth
 	 */
 	public function thereIsNoGlobalHttpAuth()
 	{
 		$this->require_destructive( __FUNCTION__ );
-		if ( self::db_rows( "SELECT id FROM auth_users WHERE site_url = 'default'" ) ) {
-			self::ee_or_fail( 'auth delete global' );
-		}
-		$left = self::db_rows( "SELECT username FROM auth_users WHERE site_url = 'default'" );
-		if ( $left ) {
-			throw new Exception( 'Global auth users are left after `ee auth delete global`: ' . json_encode( $left ) );
+		$deleted = self::db()->exec( "DELETE FROM auth_users WHERE site_url = 'default'" );
+		if ( $deleted || file_exists( self::htpasswd_path( 'default' ) ) ) {
+			self::write_htpasswd( 'default', [] );
+			self::reload_proxy();
 		}
 	}
 
@@ -1388,42 +1408,81 @@ class FeatureContext implements Context
 
 	/* ------------------------ Auth state management ---------------------- */
 
-	private static function prefixed_sites_with_auth_rows()
+	private static function htpasswd_dir()
 	{
-		$like  = self::SITE_PREFIX . '%';
-		$sites = array_merge(
-			array_column( self::db_rows( 'SELECT DISTINCT site_url FROM auth_users WHERE site_url LIKE ?', [ $like ] ), 'site_url' ),
-			array_column( self::db_rows( 'SELECT DISTINCT site_url FROM auth_ips WHERE site_url LIKE ?', [ $like ] ), 'site_url' )
-		);
+		return EE_ROOT_DIR . '/services/nginx-proxy/htpasswd';
+	}
 
-		return array_values( array_unique( $sites ) );
+	private static function vhost_dir()
+	{
+		return EE_ROOT_DIR . '/services/nginx-proxy/vhost.d';
 	}
 
 	/**
-	 * Removes a test site's auth users and whitelist through ee; falls back to direct cleanup
-	 * when ee refuses (site deleted or disabled).
+	 * Whether a proxy file belongs to one of this suite's sites (also `_wildcard.` and `.tmp` variants).
 	 */
-	private static function reset_site_auth($site)
+	private static function is_test_file_name($name)
 	{
-		self::assert_prefixed_site( $site );
-		if ( self::db_rows( 'SELECT id FROM auth_users WHERE site_url = ?', [ $site ] ) ) {
-			self::ee( 'auth delete ' . escapeshellarg( $site ) );
-		}
-		if ( self::db_rows( 'SELECT id FROM auth_ips WHERE site_url = ?', [ $site ] ) ) {
-			self::ee( 'auth delete ' . escapeshellarg( $site ) . ' --ip' );
+		$name = preg_replace( '/^\.?(_wildcard\.)?/', '', $name );
+
+		return 0 === strpos( $name, self::SITE_PREFIX );
+	}
+
+	private static function is_plain_file_name($name)
+	{
+		return is_string( $name ) && '' !== $name && '.' !== $name && '..' !== $name && false === strpbrk( $name, "/\\\0" );
+	}
+
+	/**
+	 * Regular files auth-command manages: everything in htpasswd/ and vhost.d/*_acl, as [kind => [name => path]].
+	 */
+	private static function auth_files($test_sites)
+	{
+		$files = [ 'htpasswd' => [], 'acl' => [] ];
+		foreach ( [ 'htpasswd' => self::htpasswd_dir(), 'acl' => self::vhost_dir() ] as $kind => $dir ) {
+			foreach ( is_dir( $dir ) ? scandir( $dir ) : [] as $name ) {
+				$path = "$dir/$name";
+				if ( ! self::is_plain_file_name( $name ) || is_link( $path ) || ! is_file( $path ) ) {
+					continue;
+				}
+				if ( 'acl' === $kind && '_acl' !== substr( $name, -4 ) ) {
+					continue;
+				}
+				if ( self::is_test_file_name( $name ) === $test_sites ) {
+					$files[ $kind ][ $name ] = $path;
+				}
+			}
 		}
 
-		$left_users = self::db_rows( 'SELECT id FROM auth_users WHERE site_url = ?', [ $site ] );
-		$left_ips   = self::db_rows( 'SELECT id FROM auth_ips WHERE site_url = ?', [ $site ] );
-		$acl_file   = self::acl_path( $site );
-		$acl_stale  = file_exists( $acl_file ) && ! self::site_row( $site );
-		if ( $left_users || $left_ips || $acl_stale ) {
-			self::db()->prepare( 'DELETE FROM auth_users WHERE site_url = ?' )->execute( [ $site ] );
-			self::db()->prepare( 'DELETE FROM auth_ips WHERE site_url = ?' )->execute( [ $site ] );
-			@unlink( self::htpasswd_path( $site ) );
-			@unlink( $acl_file );
-			self::reload_proxy( false );
+		return $files;
+	}
+
+	/**
+	 * Removes the auth rows and files of this suite's sites (all of them, or one), directly.
+	 *
+	 * @return bool Whether anything was removed.
+	 */
+	private static function reset_test_sites_auth($site = null)
+	{
+		$changed = false;
+		foreach ( [ 'auth_users', 'auth_ips' ] as $table ) {
+			$statement = self::db()->prepare( "DELETE FROM $table WHERE site_url " . ( null === $site ? 'LIKE ?' : '= ?' ) );
+			$statement->execute( [ null === $site ? self::SITE_PREFIX . '%' : $site ] );
+			$changed = $statement->rowCount() > 0 || $changed;
 		}
+		foreach ( self::auth_files( true ) as $kind => $files ) {
+			foreach ( $files as $name => $path ) {
+				$base = preg_replace( [ '/^\.?(_wildcard\.)?/', '/(_acl)?(\.tmp)?$/' ], '', $name );
+				if ( null === $site || $base === $site ) {
+					if ( ! unlink( $path ) ) {
+						throw new Exception( "Could not remove $path." );
+					}
+					$changed = true;
+				}
+			}
+		}
+
+		return $changed;
 	}
 
 	private static function cleanup_prefixed_sites()
@@ -1433,94 +1492,146 @@ class FeatureContext implements Context
 			self::ee( 'site delete ' . escapeshellarg( $row['site_url'] ) . ' --yes' );
 		}
 
-		// Leftovers of known bugs (AUTH-11: site delete keeps the _acl file).
-		$changed = false;
-		foreach ( [ 'auth_users', 'auth_ips' ] as $table ) {
-			$statement = self::db()->prepare( "DELETE FROM $table WHERE site_url LIKE ?" );
-			$statement->execute( [ $like ] );
-			$changed = $changed || $statement->rowCount() > 0;
-		}
-		$files = array_merge(
-			glob( self::htpasswd_path( self::SITE_PREFIX . '*' ) ) ?: [],
-			glob( self::acl_path( self::SITE_PREFIX . '*' ) ) ?: []
-		);
-		foreach ( $files as $file ) {
-			$changed = unlink( $file ) || $changed;
-		}
-		if ( $changed ) {
-			self::reload_proxy( false );
+		// Leftovers of known bugs (AUTH-11: site delete keeps the _acl file) and of failed deletes.
+		if ( self::reset_test_sites_auth() ) {
+			self::reload_proxy();
 		}
 	}
 
 	/**
-	 * Safety net for a failed restore: removes global users named bh-* and documentation-range global IPs.
+	 * Everything auth-command writes outside this suite's sites: all auth_users/auth_ips rows (the
+	 * global, admin-tools and other sites' rows) and the bytes and modes of their htpasswd/_acl files.
 	 */
-	private static function cleanup_leftover_global_test_auth()
+	private static function capture_auth_state()
 	{
-		foreach ( self::db_rows( "SELECT username FROM auth_users WHERE site_url = 'default' AND username LIKE 'bh-%'" ) as $row ) {
-			self::ee( 'auth delete global --user=' . escapeshellarg( $row['username'] ) );
-		}
-		foreach ( self::db_rows( "SELECT ip FROM auth_ips WHERE site_url = 'default'" ) as $row ) {
-			if ( preg_match( '#^(192\.0\.2\.|198\.51\.100\.|203\.0\.113\.|2001:db8:)#i', $row['ip'] ) ) {
-				self::ee( 'auth delete global --ip=' . escapeshellarg( $row['ip'] ) );
+		$like  = self::SITE_PREFIX . '%';
+		$state = [
+			'time'       => date( 'c' ),
+			'auth_users' => self::db_rows( 'SELECT id, site_url, username, password FROM auth_users WHERE site_url NOT LIKE ? ORDER BY id', [ $like ] ),
+			'auth_ips'   => self::db_rows( 'SELECT id, site_url, ip FROM auth_ips WHERE site_url NOT LIKE ? ORDER BY id', [ $like ] ),
+			'files'      => [ 'htpasswd' => [], 'acl' => [] ],
+		];
+		foreach ( self::auth_files( false ) as $kind => $files ) {
+			foreach ( $files as $name => $path ) {
+				$content = file_get_contents( $path );
+				if ( false === $content ) {
+					throw new Exception( "Could not read $path for the auth state snapshot." );
+				}
+				$state['files'][ $kind ][ $name ] = [ 'mode' => fileperms( $path ) & 0777, 'content' => base64_encode( $content ) ];
 			}
 		}
-	}
 
-	private static function global_auth_state()
-	{
-		return [
-			'users' => self::db_rows( "SELECT site_url, username, password FROM auth_users WHERE site_url IN ('default', 'default_admin_tools') ORDER BY id" ),
-			'ips'   => array_column( self::db_rows( "SELECT ip FROM auth_ips WHERE site_url = 'default' ORDER BY id" ), 'ip' ),
-		];
+		return $state;
 	}
 
 	/**
-	 * Puts back the global and admin-tools users (same passwords) and the global whitelist, then
-	 * regenerates the files the way auth-command does.
+	 * Puts the rows and files back byte for byte (removing the ones created since), removes this
+	 * suite's sites' auth, and reloads the proxy. Uses PDO and the filesystem only.
 	 */
-	private static function restore_global_auth_state(array $snapshot)
+	private static function restore_auth_state(array $snapshot)
 	{
-		if ( self::global_auth_state() == $snapshot ) {
-			return;
-		}
-
 		$pdo = self::db();
 		$pdo->beginTransaction();
-		$pdo->exec( "DELETE FROM auth_users WHERE site_url IN ('default', 'default_admin_tools')" );
-		$pdo->exec( "DELETE FROM auth_ips WHERE site_url = 'default'" );
-		foreach ( $snapshot['users'] as $row ) {
-			self::insert_row( 'auth_users', $row );
-		}
-		foreach ( $snapshot['ips'] as $ip ) {
-			self::insert_row( 'auth_ips', [ 'site_url' => 'default', 'ip' => $ip ] );
-		}
-		$pdo->commit();
-
-		self::regenerate_auth_files();
-	}
-
-	/**
-	 * Mirrors auth-command's generate_*_auth_files() / generate_*_whitelist() for every scope.
-	 */
-	private static function regenerate_auth_files()
-	{
-		$global = self::db_rows( "SELECT username, password FROM auth_users WHERE site_url = 'default' ORDER BY id" );
-		self::write_htpasswd( 'default_admin_tools', self::db_rows( "SELECT username, password FROM auth_users WHERE site_url = 'default_admin_tools' ORDER BY id" ) );
-		self::write_htpasswd( 'default', $global );
-		foreach ( self::db_rows( "SELECT DISTINCT site_url FROM auth_users WHERE site_url NOT IN ('default', 'default_admin_tools')" ) as $row ) {
-			$own = self::db_rows( 'SELECT username, password FROM auth_users WHERE site_url = ? ORDER BY id', [ $row['site_url'] ] );
-			self::write_htpasswd( $row['site_url'], array_merge( $global, $own ) );
+		try {
+			$pdo->exec( 'DELETE FROM auth_users' );
+			$pdo->exec( 'DELETE FROM auth_ips' );
+			foreach ( $snapshot['auth_users'] as $row ) {
+				self::insert_row( 'auth_users', $row );
+			}
+			foreach ( $snapshot['auth_ips'] as $row ) {
+				self::insert_row( 'auth_ips', $row );
+			}
+			$pdo->commit();
+		} catch ( Exception $e ) {
+			$pdo->rollBack();
+			throw $e;
 		}
 
-		$global_ips = array_column( self::db_rows( "SELECT ip FROM auth_ips WHERE site_url = 'default' ORDER BY id" ), 'ip' );
-		self::write_acl( 'default', $global_ips );
-		foreach ( self::db_rows( "SELECT DISTINCT site_url FROM auth_ips WHERE site_url != 'default'" ) as $row ) {
-			$own = array_column( self::db_rows( 'SELECT ip FROM auth_ips WHERE site_url = ? ORDER BY id', [ $row['site_url'] ] ), 'ip' );
-			self::write_acl( $row['site_url'], array_merge( $global_ips, $own ) );
+		self::reset_test_sites_auth();
+		$dirs = [ 'htpasswd' => self::htpasswd_dir(), 'acl' => self::vhost_dir() ];
+		foreach ( self::auth_files( false ) as $kind => $files ) {
+			foreach ( array_diff_key( $files, $snapshot['files'][ $kind ] ) as $path ) {
+				if ( ! unlink( $path ) ) {
+					throw new Exception( "Could not remove $path." );
+				}
+			}
+		}
+		foreach ( $snapshot['files'] as $kind => $files ) {
+			foreach ( $files as $name => $file ) {
+				$path    = $dirs[ $kind ] . '/' . $name;
+				$content = base64_decode( $file['content'], true );
+				if ( is_link( $path ) || ! is_file( $path ) || file_get_contents( $path ) !== $content ) {
+					// Written next to the target and renamed, so the proxy never reads a partial file.
+					$tmp = $dirs[ $kind ] . '/.behat-restore.tmp';
+					if ( false === file_put_contents( $tmp, $content ) || ! rename( $tmp, $path ) ) {
+						throw new Exception( "Could not restore $path." );
+					}
+				}
+				chmod( $path, $file['mode'] );
+			}
 		}
 
 		self::reload_proxy();
+		if ( file_exists( self::snapshot_file() ) && ! unlink( self::snapshot_file() ) ) {
+			throw new Exception( 'Could not remove ' . self::snapshot_file() . '.' );
+		}
+	}
+
+	/**
+	 * Next to the data it protects, so it survives a killed run (and isn't in world-writable /tmp).
+	 */
+	private static function snapshot_file()
+	{
+		return EE_ROOT_DIR . '/.behat-' . rtrim( self::SITE_PREFIX, '-' ) . '-auth-snapshot.json';
+	}
+
+	private static function write_pending_snapshot(array $snapshot)
+	{
+		$file = self::snapshot_file();
+		$tmp  = "$file.tmp";
+		$old  = umask( 0077 );
+		$ok   = false !== file_put_contents( $tmp, json_encode( $snapshot ) ) && rename( $tmp, $file );
+		umask( $old );
+		if ( ! $ok ) {
+			throw new Exception( "Could not save the auth state snapshot to $file." );
+		}
+	}
+
+	private static function read_pending_snapshot()
+	{
+		$file = self::snapshot_file();
+		if ( ! file_exists( $file ) ) {
+			return null;
+		}
+		$snapshot = json_decode( (string) file_get_contents( $file ), true );
+		$valid    = is_array( $snapshot ) && isset( $snapshot['time'], $snapshot['auth_users'], $snapshot['auth_ips'], $snapshot['files']['htpasswd'], $snapshot['files']['acl'] );
+		foreach ( $valid ? $snapshot['files'] : [] as $kind => $files ) {
+			foreach ( $files as $name => $entry ) {
+				$valid = $valid && self::is_plain_file_name( $name ) && ! self::is_test_file_name( $name ) && ( 'htpasswd' === $kind || '_acl' === substr( $name, -4 ) ) && isset( $entry['mode'], $entry['content'] );
+			}
+		}
+		if ( ! $valid ) {
+			throw new Exception( "$file is not a valid auth state snapshot; inspect it and remove it by hand." );
+		}
+
+		return $snapshot;
+	}
+
+	/**
+	 * Scenarios that change global auth must be @destructive, or nothing would restore it.
+	 */
+	private static function assert_no_global_auth_commands(BeforeScenarioScope $scope)
+	{
+		$steps      = $scope->getScenario()->getSteps();
+		$background = $scope->getFeature()->getBackground();
+		if ( null !== $background ) {
+			$steps = array_merge( $background->getSteps(), $steps );
+		}
+		foreach ( $steps as $step ) {
+			if ( preg_match( '/\bauth\s+(create|update|delete)\s+global\b/', $step->getText() ) ) {
+				throw new Exception( "Step '{$step->getText()}' changes global auth; tag the scenario or feature @destructive." );
+			}
+		}
 	}
 
 	private static function write_htpasswd($name, array $rows)
@@ -1552,38 +1663,22 @@ class FeatureContext implements Context
 		}
 	}
 
-	private static function write_acl($name, array $ips)
-	{
-		$path = self::acl_path( $name );
-		if ( empty( $ips ) ) {
-			if ( file_exists( $path ) ) {
-				unlink( $path );
-			}
-
-			return;
-		}
-		$content = 'satisfy any;' . PHP_EOL;
-		foreach ( $ips as $ip ) {
-			$content .= "allow $ip;" . PHP_EOL;
-		}
-		file_put_contents( $path, $content . 'deny all;' );
-	}
-
 	/**
-	 * Same sequence as site-command's reload_global_nginx_proxy().
+	 * Same sequence as site-command's reload_global_nginx_proxy(), but every step must succeed.
 	 */
-	private static function reload_proxy($strict = true)
+	private static function reload_proxy()
 	{
 		$proxy = escapeshellarg( EE_PROXY_TYPE );
-		EE::launch( "docker exec $proxy sh -c '/app/docker-entrypoint.sh /usr/local/bin/docker-gen /app/nginx.tmpl /etc/nginx/conf.d/default.conf'", false, true );
-		$test = EE::launch( "docker exec $proxy nginx -t", false, true );
-		if ( 0 !== $test->return_code ) {
-			if ( $strict ) {
-				throw new Exception( "nginx -t failed after restoring auth state.\n" . self::describe( $test ) );
+		$steps = [
+			"docker exec $proxy sh -c '/app/docker-entrypoint.sh /usr/local/bin/docker-gen /app/nginx.tmpl /etc/nginx/conf.d/default.conf'",
+			"docker exec $proxy nginx -t",
+			"docker exec $proxy nginx -s reload",
+		];
+		foreach ( $steps as $command ) {
+			$result = EE::launch( $command, false, true );
+			if ( 0 !== $result->return_code ) {
+				throw new Exception( "Reloading the proxy after an auth state change failed.\n" . self::describe( $result ) );
 			}
-
-			return;
 		}
-		EE::launch( "docker exec $proxy nginx -s reload", false, true );
 	}
 }
