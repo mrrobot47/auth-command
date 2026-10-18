@@ -11,9 +11,9 @@ Features (scenario counts include expanded outline examples):
 | `auth-whitelist.feature` | 37 | site IP whitelists, `_acl` files, HTTP bypass, entry validation (AUTH-13/14) |
 | `auth-site-lifecycle.feature` | 6 | site delete/recreate/disable/enable, HTTPS |
 | `auth-global.feature` (`@destructive`) | 31 | global users, global whitelist, merge into site files |
-| `auth-admin-tools.feature` (`@destructive`) | 19 | admin-tools auth, AUTH-8, `ee admin-tools enable` interplay |
+| `auth-admin-tools.feature` (`@destructive`) | 19 | admin-tools auth independent of global auth (AUTH-8), `ee admin-tools enable` interplay |
 | `auth-migration.feature` (`@destructive @migration`) | 2 | auth files migration rollback, invalid whitelist entries dropped on upgrade (AUTH-13) |
-| **Total** | **160** | `@known-bug` 11, `@destructive` 52, `@migration` 2, `@admin-tools` 2, `@le` 0, `@remote` 0 |
+| **Total** | **160** | `@known-bug` 6, `@destructive` 52, `@migration` 2, `@admin-tools` 3, `@le` 0, `@remote` 0 |
 
 Tags:
 - `@destructive`: changes the global/admin-tools users or the global whitelist. Before the first step of each such scenario that isn't a "site exists" step (so what `ee site create` initialises in the Background, i.e. admin-tools auth and the frontend-subnet whitelist, is kept) the context snapshots every `auth_users`/`auth_ips` row outside the test sites plus the bytes and modes of `htpasswd/*` and `vhost.d/*_acl`, and saves the snapshot to `/opt/easyengine/.behat-bh-auth-command-auth-snapshot.json` (0600). Afterwards it puts rows and files back exactly (same passwords, files created meanwhile removed) with PDO and the filesystem only, then runs docker-gen, `nginx -t` and `nginx -s reload`, each of which must succeed. The file is deleted only after a successful restore; if it's still there (killed run, failed restore), the next scenario restores it before doing anything else. Scenarios that aren't `@destructive` fail up front if a step runs `ee auth … global`.
@@ -70,7 +70,7 @@ Coverage estimate: 54 of 60 inventory items covered (90%). The gaps are items 55
 | 25 | `delete global --ip=<ip>` / `--ip` (all) | global: "Deleting one global IP…", "Deleting the whole global whitelist…" |
 | 26 | `list <site>` formats table/csv/yaml/json/count | site: "List shows the site users in every format" |
 | 27 | `list <site>` without own users; other sites hidden | site: "List of a site without its own users…", "The site's list does not show other sites' users" |
-| 28 | `list global` (Global Auth / Admin Tools Auth labels) | global: "Global list shows the global users"; admin-tools: "Site create initialises…", "Global create absorbs…" |
+| 28 | `list global` (Global Auth / Admin Tools Auth labels) | global: "Global list shows the global users"; admin-tools: "Site create initialises…", "Global create keeps the admin-tools auth separate" |
 | 29 | `list <site> --ip` formats; empty list | whitelist: "List --ip shows only the site's own IPs…", "List --ip on a site without a whitelist is empty" |
 | 30 | `list global --ip` | global: "Global whitelist update adds IPs…", "Deleting the whole global whitelist…" |
 | 31 | `list --format=<invalid>`, unknown params, extra positionals | usage: "The dispatcher rejects unknown parameters…" |
@@ -105,7 +105,7 @@ Coverage estimate: 54 of 60 inventory items covered (90%). The gaps are items 55
 | 50 | recreate / disable+enable keep or reset auth correctly | lifecycle: "A site recreated with the same name…", "Auth survives disabling…", "The whitelist survives…" |
 | 51 | admin-tools auth init on `ee site create` (+ frontend whitelist), kept when present, skipped with global auth | admin-tools: "Site create initialises…", "Site create keeps…", "Site create does not add…" |
 | 52 | `ee admin-tools enable` init messages (exists / added) | admin-tools: "ee admin-tools enable reports…", "…creates the admin-tools auth…" |
-| 53 | admin-tools auth vs global create/delete (AUTH-8), regen when a site uses admin-tools | admin-tools: "Global create absorbs…", three `@known-bug` AUTH-8 scenarios, `@admin-tools` "Deleting all global auth recreates…" |
+| 53 | admin-tools auth vs global create/delete (AUTH-8), regen when a site uses admin-tools | admin-tools: "Global create keeps the admin-tools auth separate", "Deleting all global auth keeps the admin-tools auth", "Deleting the only named global user leaves no global auth behind", `@admin-tools` "Deleting all global auth keeps the admin-tools password…" and "…creates an admin-tools auth when admin-tools used the global auth" |
 | 54 | `/ee-admin/` protected by the admin-tools credentials | admin-tools: `@admin-tools` "Admin-tools pages on a site ask for the admin-tools credentials" |
 | 55 | `verify_htpasswd_is_present()` error when the proxy lacks htpasswd | **not covered**: needs a proxy image without apache2-utils |
 | 56 | migrations: `auth_users`/`auth_ips` tables, `AddFrontendIp` container migration | **not covered** as such: tables are exercised by every scenario, but the migration only runs on an upgrade from an older DB (core upgrade suite) |
@@ -120,13 +120,13 @@ IDs refer to `/root/workspace/issues.md` (section "Wildcard HTTP auth / whitelis
 
 | ID | Scenario(s) | Flips with #57 |
 |---|---|---|
-| AUTH-8 | admin-tools: "Global create keeps the admin-tools auth separate", "Deleting all global auth keeps the admin-tools auth", "Deleting the only named global user leaves no global auth behind" | no (`create_auth()`/`delete()` unchanged) |
 | AUTH-9 | site: "The delete success message names the removed user"; global: "An IP whitelisted globally and on a site appears once…" (the create-when-exists error is asserted as current behaviour in whitelist) | no (messages unchanged; `get_site_whitelist_ips()` still doesn't de-duplicate) |
 | AUTH-15 | whitelist: "Whitelist commands report success" | no |
 | AUTH-16 | global: "A site list works when there is neither global nor admin-tools auth" | no |
-| AUTH-17 | admin-tools: "A rejected global create leaves the admin-tools auth untouched", "Global create with the admin-tools user name is rejected without side effects" | no |
 | AUTH-18 | admin-tools: "The admin-tools password can be rotated with ee auth update global" | no |
 | LOGCMD-8 | usage: "A site URL with scheme and trailing slash is accepted" (site-command `auto_site_name()`) | no (site-command) |
+
+AUTH-8 and AUTH-17 are regular scenarios with auth-command `fix/independent-admin-tools-auth` (2026-10-01): admin-tools "Global create keeps the admin-tools auth separate", "Deleting all global auth keeps the admin-tools auth", "Deleting the only named global user leaves no global auth behind", "A rejected global create leaves the admin-tools auth untouched", "A global user may be called like the admin-tools user and stays separate from it" (replaces "…is rejected without side effects": the global and admin-tools users are independent, as `Auth::validate()` already allowed) and the `@admin-tools` pair; "Global create absorbs the admin-tools user…" (the old behaviour) is gone. They fail on `upstream/develop` until that branch is merged.
 
 AUTH-13 and AUTH-14 are regular scenarios since the fix on auth-command `fix/validate-whitelist-cidr` (2026-09-27): whitelist "An invalid CIDR prefix is rejected instead of breaking nginx" (5 examples), "An invalid entry stored by an older version is skipped, and can still be deleted", "A duplicated IP in one create list is stored once", and migration "The upgrade removes invalid whitelist entries from existing _acl files". They fail on `upstream/develop` until that branch is merged.
 
