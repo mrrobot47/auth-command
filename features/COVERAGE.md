@@ -1,22 +1,22 @@
 # auth-command Behat coverage
 
-Base: `upstream/develop` (`234d740`). The wildcard auth work (auth-command #57, `feat/wildcard-auth`) isn't on develop and isn't covered here.
+Base: `upstream/develop` (`234d740`). The wildcard auth work (auth-command #57, `feat/wildcard-auth`) isn't on develop and isn't covered here; the known-bug table says which scenarios flip with it.
 
 Features (scenario counts include expanded outline examples):
 
 | File | Scenarios | Area |
 |---|---|---|
-| `auth-usage.feature` | 34 | synopsis, help, site resolution, dispatcher validation, disabled/unknown sites |
+| `auth-usage.feature` | 35 | synopsis, help, site resolution, dispatcher validation, disabled/unknown sites |
 | `auth-site.feature` | 30 | site users: create/update/delete/list, HTTP effect |
-| `auth-whitelist.feature` | 33 | site IP whitelists, `_acl` files, HTTP bypass |
+| `auth-whitelist.feature` | 34 | site IP whitelists, `_acl` files, HTTP bypass |
 | `auth-site-lifecycle.feature` | 6 | site delete/recreate/disable/enable, HTTPS |
 | `auth-global.feature` (`@destructive`) | 31 | global users, global whitelist, merge into site files |
 | `auth-admin-tools.feature` (`@destructive`) | 19 | admin-tools auth, AUTH-8, `ee admin-tools enable` interplay |
-| **Total** | **153** | `@known-bug` 18, `@destructive` 50, `@admin-tools` 2, `@le` 0, `@remote` 0 |
+| **Total** | **155** | `@known-bug` 18, `@destructive` 50, `@admin-tools` 2, `@le` 0, `@remote` 0 |
 
 Tags:
-- `@destructive`: changes the global/admin-tools users or the global whitelist. The context snapshots `auth_users` (`default`, `default_admin_tools`) and `auth_ips` (`default`) before each such scenario and restores them afterwards with the same passwords, then regenerates htpasswd/`_acl` files and reloads the proxy.
-- `@known-bug`: expected behaviour that fails today; the issue ID is in a comment on the scenario. IDs `AUTH-12`…`AUTH-18` are proposals for new entries in issues.md.
+- `@destructive`: changes the global/admin-tools users or the global whitelist. Before each such scenario (and its Background) the context snapshots every `auth_users`/`auth_ips` row outside the test sites plus the bytes and modes of `htpasswd/*` and `vhost.d/*_acl`, and saves the snapshot to `/opt/easyengine/.behat-bh-auth-command-auth-snapshot.json` (0600). Afterwards it puts rows and files back exactly (same passwords, files created meanwhile removed) with PDO and the filesystem only, then runs docker-gen, `nginx -t` and `nginx -s reload`, each of which must succeed. The file is deleted only after a successful restore; if it's still there (killed run, failed restore), the next scenario restores it before doing anything else. Scenarios that aren't `@destructive` fail up front if a step runs `ee auth … global`.
+- `@known-bug`: expected behaviour that fails today; the issue ID is in a comment on the scenario. IDs `AUTH-12`…`AUTH-21` are in issues.md.
 - `@admin-tools`: needs network access (admin-tools downloads phpMyAdmin etc.) and a PHP site.
 - No `@le` or `@remote`: auth doesn't depend on Let's Encrypt (HTTPS is checked with `--ssl=self`) or backups.
 
@@ -27,7 +27,9 @@ Estimated runtime: about 30 minutes for the whole suite (≈17 site creates, 8 s
 ## Environment and isolation
 
 - Sites: `bh-auth-command-<n>.test` only (usage 13, site 1–2, whitelist 3–4, lifecycle 5–7, global 8–9, admin-tools 10–12). Background steps create a site only when it's missing and re-enable it when disabled, so scenarios share sites but stay independent.
-- After every scenario, auth rows of `bh-auth-command-*` sites are removed through `ee auth delete` (falling back to direct cleanup for deleted/disabled sites). After every feature, only `bh-auth-command-*` sites are deleted, plus the files and rows known bugs leave behind (AUTH-11 `_acl`), plus any global `bh-*` user or documentation-range global IP a failed restore left.
+- After every scenario, the auth rows and htpasswd/`_acl` files (also `_wildcard.`/`.tmp` variants) of `bh-auth-command-*` sites are removed directly, without the code under test, and the proxy is reloaded if anything changed; "the site … has no http auth or whitelist" and "there is no global http auth" work the same way. After every feature, only `bh-auth-command-*` sites are deleted (`ee site delete`), followed by the same direct cleanup for what known bugs leave behind (AUTH-11 `_acl`).
+- `ee site create` (Background) adds the admin-tools auth and the frontend-subnet global whitelist when neither global nor admin-tools auth exists; that's normal ee behaviour and isn't undone in non-destructive features.
+- Needs an initialised EE (`/opt/easyengine/db/ee.sqlite`): the snapshot is taken before any Background step.
 - HTTP checks go to the host's public IP (`{PUBLIC_IP}`, from `hostname -I` or `BEHAT_PUBLIC_IP`) with a Host header; `127.0.0.1` checks assert the frontend-subnet bypass. HTTP assertions retry for up to 10 s because nginx reloads are asynchronous.
 - Test IPs come from 192.0.2.0/24, 198.51.100.0/24 and 2001:db8::/32, except `{PUBLIC_IP}` for real bypass checks.
 
@@ -102,7 +104,7 @@ Coverage estimate: 54 of 60 inventory items covered (90%). The gaps are items 55
 | 51 | admin-tools auth init on `ee site create` (+ frontend whitelist), kept when present, skipped with global auth | admin-tools: "Site create initialises…", "Site create keeps…", "Site create does not add…" |
 | 52 | `ee admin-tools enable` init messages (exists / added) | admin-tools: "ee admin-tools enable reports…", "…creates the admin-tools auth…" |
 | 53 | admin-tools auth vs global create/delete (AUTH-8), regen when a site uses admin-tools | admin-tools: "Global create absorbs…", three `@known-bug` AUTH-8 scenarios, `@admin-tools` "Deleting all global auth recreates…" |
-| 54 | `/ee-admin/` protected by the admin-tools credentials | admin-tools: `@admin-tools` "Admin-tools pages on a site ask for the admin-tools credentials" (unverified expectation, see suspected bugs) |
+| 54 | `/ee-admin/` protected by the admin-tools credentials | admin-tools: `@admin-tools` "Admin-tools pages on a site ask for the admin-tools credentials" |
 | 55 | `verify_htpasswd_is_present()` error when the proxy lacks htpasswd | **not covered**: needs a proxy image without apache2-utils |
 | 56 | migrations: `auth_users`/`auth_ips` tables, `AddFrontendIp` container migration | **not covered** as such: tables are exercised by every scenario, but the migration only runs on an upgrade from an older DB (core upgrade suite) |
 | 57 | `nginx_proxy_check()` starting a stopped proxy | **not covered**: global-service state, service-command's area |
@@ -112,29 +114,27 @@ Coverage estimate: 54 of 60 inventory items covered (90%). The gaps are items 55
 
 ## Known bugs covered (`@known-bug`)
 
-| ID | Scenario(s) |
-|---|---|
-| AUTH-8 | admin-tools: "Global create keeps the admin-tools auth separate", "Deleting all global auth keeps the admin-tools auth", "Deleting the only named global user leaves no global auth behind" |
-| AUTH-9 | site: "The delete success message names the removed user"; global: "An IP whitelisted globally and on a site appears once…" (the create-when-exists error is asserted as current behaviour in whitelist) |
-| AUTH-11 | lifecycle: "Deleting a site removes its whitelist file" |
+IDs refer to `/root/workspace/issues.md` (section "Wildcard HTTP auth / whitelist"). "Flips with #57" means the scenario passes on the local `feat/wildcard-auth` branch (auth-command #57 with site-command #502).
 
-## Suspected new bugs (from reading the code; proposed IDs)
+| ID | Scenario(s) | Flips with #57 |
+|---|---|---|
+| AUTH-8 | admin-tools: "Global create keeps the admin-tools auth separate", "Deleting all global auth keeps the admin-tools auth", "Deleting the only named global user leaves no global auth behind" | no (`create_auth()`/`delete()` unchanged) |
+| AUTH-9 | site: "The delete success message names the removed user"; global: "An IP whitelisted globally and on a site appears once…" (the create-when-exists error is asserted as current behaviour in whitelist) | no (messages unchanged; `get_site_whitelist_ips()` still doesn't de-duplicate) |
+| AUTH-11 | lifecycle: "Deleting a site removes its whitelist file" | yes (`hooks.php` autoloaded, `remove_auth_files()` removes `_acl`) |
+| AUTH-12 | site: "Passwords with shell metacharacters work end to end" (3 examples) | yes (`dfa56f0` escapes the htpasswd arguments) |
+| AUTH-13 | whitelist: "An invalid CIDR prefix is rejected instead of breaking nginx" (3 examples) | no |
+| AUTH-14 | whitelist: "A duplicated IP in one create list is stored once" | no |
+| AUTH-15 | whitelist: "Whitelist commands report success" | no |
+| AUTH-16 | global: "A site list works when there is neither global nor admin-tools auth" | no |
+| AUTH-17 | admin-tools: "A rejected global create leaves the admin-tools auth untouched", "Global create with the admin-tools user name is rejected without side effects" | no |
+| AUTH-18 | admin-tools: "The admin-tools password can be rotated with ee auth update global" | no |
 
-| ID | Severity | Where | Issue | Scenario |
-|---|---|---|---|---|
-| AUTH-12 | Medium | `Auth_Command.php` `generate_*_auth_files()`, `auth-utils.php` | User and password are interpolated unquoted into `docker exec … htpasswd -b…`; spaces, `$`, `;`, quotes break it (and `;` runs a shell command). The exit status is ignored, so the DB and htpasswd diverge while "Success" is printed. | site: "Passwords with shell metacharacters work end to end" (3 examples) |
-| AUTH-13 | Medium | `clean_and_validate_ips()` | Only the part before `/` is validated; `1.2.3.4/abc`, `/99`, `2001:db8::/200` are stored and written to `_acl`, `nginx -t` fails and every later proxy reload (all sites) is skipped until the entry is removed. | whitelist: "An invalid CIDR prefix is rejected…" (3 examples) |
-| AUTH-14 | Low | `create_whitelist()` | A repeated IP in one `--ip` list hits UNIQUE(site_url, ip): uncaught PDOException after the first insert, `_acl` never generated. | whitelist: "A duplicated IP in one create list is stored once" |
-| AUTH-15 | Cosmetic | `create/update/delete --ip` | Whitelist changes print no success message at all. | whitelist: "Whitelist commands report success" |
-| AUTH-16 | Low | `list()` | Errors "Auth does not exists on global." whenever there is neither global nor admin-tools auth, even for a site with its own users. | global: "A site list works when there is neither global nor admin-tools auth" |
-| AUTH-17 | Low | `create_auth()` | The admin-tools row is converted to `default` and saved before `Auth::create()` validates, so a rejected `create global` (name taken by a site user, or `--user=easyengine`) still rewrites the DB and leaves htpasswd/default_admin_tools out of sync. | admin-tools: "A rejected global create leaves the admin-tools auth untouched", "Global create with the admin-tools user name…" |
-| AUTH-18 | Low | `update_auth()` + help text | The documented `ee auth update global --user=easyengine` fails: update only looks at `default` rows, so the admin-tools password can't be rotated with ee. | admin-tools: "The admin-tools password can be rotated with ee auth update global" |
-| AUTH-19 | Low | `generate_global_auth_files()` L258 | `$global_admin_tools_auth->username` reads a property of an array (PHP warning, empty user/pass passed to htpasswd). Unreachable today because `create global` converts the row first; would bite if both rows coexist (old data). | not covered (unreachable from the CLI) |
-| AUTH-20 | Risk (unverified) | nginx-proxy template | The proxy only emits a separate `/ee-admin/` location (with `default_admin_tools`) when the vhost has containers with `VIRTUAL_PATH` (mailhog). Without mailhog, `/ee-admin/` may be protected only by site/global auth, i.e. not at all by default. | admin-tools: `@admin-tools` "Admin-tools pages on a site ask for the admin-tools credentials" |
-| AUTH-21 | Cosmetic | help text | `create` examples say the default user is `easyengine`; the code generates `ee-` plus 6 random characters. `delete` synopsis shows `[--ip]` as a flag but accepts `--ip=<list>`. Messages say "does not exists" and "Whitelist is already created on default" (not "global"). | asserted as current behaviour in site/whitelist/global |
+Not covered: AUTH-19 (unreachable from the CLI; fixed in #57), AUTH-21 (cosmetic help text; current messages are asserted as they are). AUTH-20 (`/ee-admin/` unprotected without mailhog) was refuted: every site's nginx container sets `VIRTUAL_PATH=/`, so the proxy always emits the `/ee-admin/` location with the admin-tools file; `@admin-tools` "Admin-tools pages on a site ask for the admin-tools credentials" is a regular (passing) scenario.
+
+Current-behaviour scenarios that change with #57 (not bugs, but they will need updating when #57 lands): whitelist "After removing the whole site whitelist the _acl file keeps only global IPs" (#57 removes a site's `_acl` when it has no own IPs, `5f12c49`).
 
 ## Step definitions
 
-`features/bootstrap/FeatureContext.php` is site-command's context plus a clearly marked "Shared steps and helpers" section. Changes to the copied part: the `I run` pattern is anchored (it matched any step with a double-quoted string), `$commands` is declared (PHP 8.2+ dynamic property), the container-label count check is fixed (it threw on a match), and `@AfterFeature` deletes only `bh-auth-command-*` sites instead of every site.
+`features/bootstrap/FeatureContext.php` is site-command's context plus a clearly marked "Shared steps and helpers" section. Changes to the copied part: `EE_PROXY_TYPE` is defined (only `Runner::init_ee()` defines it, so every `docker exec` helper failed), the `I run` pattern is anchored (it matched any step with a double-quoted string), `$commands` is declared (PHP 8.2+ dynamic property), the container-label count check is fixed (it threw on a match), and `@AfterFeature` deletes only `bh-auth-command-*` sites instead of every site.
 
 Note: with Behat 3.8, `--dry-run --strict` always exits 1 because it counts the skipped steps; validation means "no undefined or ambiguous steps" in its output.
