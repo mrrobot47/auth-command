@@ -4,7 +4,8 @@ Feature: Site-scoped HTTP auth users
   host's public IP with a Host header, because 127.0.0.1 arrives as the whitelisted frontend subnet.
 
   Background:
-    Given the html site "bh-auth-command-1.test" exists
+    Given global http auth is not enabled
+    And the html site "bh-auth-command-1.test" exists
     And the site "bh-auth-command-1.test" has no http auth or whitelist
 
   Scenario: A site without auth is served to everyone
@@ -267,7 +268,8 @@ Feature: Site-scoped HTTP auth users
   Scenario: Deleting twice fails the second time
     Given I run "bin/ee auth create bh-auth-command-1.test --user=bh-u1 --pass=bh-p1"
     When I run "bin/ee auth delete bh-auth-command-1.test --user=bh-u1"
-    And I run "bin/ee auth delete bh-auth-command-1.test --user=bh-u1"
+    Then the command should succeed
+    When I run "bin/ee auth delete bh-auth-command-1.test --user=bh-u1"
     Then the command should fail
     And STDERR should contain:
       """
@@ -307,15 +309,16 @@ Feature: Site-scoped HTTP auth users
       """
       {ITEMS}
       """
+    # Piped output (as under Behat) uses the tab-separated table renderer, not the ASCII one.
     When I run "bin/ee auth list bh-auth-command-1.test"
     Then the command should succeed
     And STDOUT should match:
       """
-      /site_url\s*\|\s*username\s*\|\s*password/
+      /^site_url\tusername\tpassword$/m
       """
     And STDOUT should match:
       """
-      /bh-auth-command-1\.test\s*\|\s*bh-u1\s*\|\s*bh-p1/
+      /^bh-auth-command-1\.test\tbh-u1\tbh-p1$/m
       """
     When I run "bin/ee auth list bh-auth-command-1.test --format=csv"
     Then STDOUT should contain:

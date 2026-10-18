@@ -5,7 +5,8 @@ Feature: Site-scoped IP whitelists
   Test IPs come from the documentation ranges (192.0.2.0/24, 198.51.100.0/24, 2001:db8::/32).
 
   Background:
-    Given the html site "bh-auth-command-3.test" exists
+    Given global http auth is not enabled
+    And the html site "bh-auth-command-3.test" exists
     And the site "bh-auth-command-3.test" has no http auth or whitelist
 
   Scenario: Create a whitelist with one IP
@@ -226,8 +227,10 @@ Feature: Site-scoped IP whitelists
     Then the command should succeed
     And the auth_ips table should not contain a row with:
       | site_url | bh-auth-command-3.test |
-    And the auth_users table should not contain a row with:
-      | site_url | bh-auth-command-3.test |
+    And the file "{EE_ROOT_DIR}/services/nginx-proxy/vhost.d/bh-auth-command-3.test_acl" should not contain:
+      """
+      allow 192.0.2.1;
+      """
 
   Scenario: After removing the whole site whitelist the _acl file keeps only global IPs
     # With a non-empty global whitelist the file is regenerated with the global IPs only (see AUTH-10);
@@ -281,7 +284,7 @@ Feature: Site-scoped IP whitelists
     When I run "bin/ee auth list bh-auth-command-3.test --ip"
     Then STDOUT should match:
       """
-      /\|\s*192\.0\.2\.1\s*\|/
+      /^ip\n192\.0\.2\.1\n192\.0\.2\.2$/m
       """
 
   Scenario: List --ip on a site without a whitelist is empty

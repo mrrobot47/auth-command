@@ -71,6 +71,8 @@ Feature: Global HTTP auth and global IP whitelist
     And I run "bin/ee auth create bh-auth-command-9.test --user=bh-s1 --pass=bh-s1-pass"
     When I run "bin/ee auth delete bh-auth-command-9.test"
     Then the command should succeed
+    # #57 removes the site file instead (5f12c49), so this step changes when #57 lands.
+    And the htpasswd file "bh-auth-command-9.test" should accept user "bh-g1" with password "bh-g1-pass"
     And the htpasswd file "bh-auth-command-9.test" should not contain user "bh-s1"
     And a GET request to "http://{PUBLIC_IP}/" with Host "bh-auth-command-9.test" should return 401
     And a GET request to "http://{PUBLIC_IP}/" with Host "bh-auth-command-9.test" as user "bh-g1" with password "bh-g1-pass" should return 200
@@ -135,6 +137,7 @@ Feature: Global HTTP auth and global IP whitelist
 
   Scenario: Updating an unknown global user fails
     Given I run "bin/ee auth create global --user=bh-g1 --pass=bh-g1-pass"
+    And the command should succeed
     When I run "bin/ee auth update global --user=bh-ghost --pass=bh-x"
     Then the command should fail
     And STDERR should contain:
@@ -186,6 +189,7 @@ Feature: Global HTTP auth and global IP whitelist
 
   Scenario: Deleting an unknown global user fails
     Given I run "bin/ee auth create global --user=bh-g1 --pass=bh-g1-pass"
+    And the command should succeed
     When I run "bin/ee auth delete global --user=bh-ghost"
     Then the command should fail
     And STDERR should contain:
@@ -322,6 +326,8 @@ Feature: Global HTTP auth and global IP whitelist
       """
       allow 192.0.2.200;
       """
+    And the file "{EE_ROOT_DIR}/services/nginx-proxy/vhost.d/bh-auth-command-9.test_acl" should contain the line "allow 192.0.2.201;" exactly 1 times
+    And the file "{EE_ROOT_DIR}/services/nginx-proxy/vhost.d/bh-auth-command-9.test_acl" should contain the line "allow 192.0.2.1;" exactly 1 times
 
   Scenario: Deleting the whole global whitelist removes default_acl and the frontend bypass
     Given I run "bin/ee auth create global --user=bh-g1 --pass=bh-g1-pass"

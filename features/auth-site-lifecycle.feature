@@ -2,6 +2,9 @@ Feature: HTTP auth across the site lifecycle
   What happens to a site's auth users, whitelist and files when the site is deleted, recreated,
   disabled and enabled, and whether auth also protects HTTPS.
 
+  Background:
+    Given global http auth is not enabled
+
   Scenario: Deleting a site removes its auth rows and htpasswd file
     Given the html site "bh-auth-command-5.test" exists
     And the site "bh-auth-command-5.test" has no http auth or whitelist
@@ -32,7 +35,9 @@ Feature: HTTP auth across the site lifecycle
     Given the site "bh-auth-command-5.test" does not exist
     And the html site "bh-auth-command-5.test" exists
     And I run "bin/ee auth create bh-auth-command-5.test --user=bh-u1 --pass=bh-p1"
+    And the command should succeed
     And I run "bin/ee site delete bh-auth-command-5.test --yes"
+    And the command should succeed
     When I run "bin/ee site create bh-auth-command-5.test --type=html"
     Then the command should succeed
     And the auth_users table should not contain a row with:
