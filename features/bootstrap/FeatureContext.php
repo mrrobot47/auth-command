@@ -1122,6 +1122,27 @@ class FeatureContext implements Context
 	}
 
 	/**
+	 * Stores a whitelist entry unchecked, as auth-command before AUTH-13 did, and writes the site's _acl file with it
+	 * the same way. No reload: nginx would reject the file.
+	 *
+	 * @Given the whitelist entry :ip of :site was stored unchecked by an older auth-command
+	 */
+	public function theWhitelistEntryWasStoredUnchecked($ip, $site)
+	{
+		self::assert_prefixed_site( $site );
+		self::insert_row( 'auth_ips', [ 'site_url' => $site, 'ip' => $ip ] );
+		// Global entries first, then the site's own, like get_site_whitelist_ips().
+		$rows    = self::db_rows( "SELECT ip FROM auth_ips WHERE site_url IN ('default', ?) ORDER BY site_url = ?, id", [ $site, $site ] );
+		$content = 'satisfy any;' . PHP_EOL;
+		foreach ( $rows as $row ) {
+			$content .= 'allow ' . $row['ip'] . ';' . PHP_EOL;
+		}
+		if ( false === file_put_contents( EE_ROOT_DIR . '/services/nginx-proxy/vhost.d/' . $site . '_acl', $content . 'deny all;' ) ) {
+			throw new Exception( "Could not write the _acl file of $site." );
+		}
+	}
+
+	/**
 	 * @Given the container migration :name is not recorded
 	 */
 	public function theContainerMigrationIsNotRecorded($name)

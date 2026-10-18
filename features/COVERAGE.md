@@ -8,11 +8,12 @@ Features (scenario counts include expanded outline examples):
 |---|---|---|
 | `auth-usage.feature` | 35 | synopsis, help, site resolution, dispatcher validation, disabled/unknown sites |
 | `auth-site.feature` | 30 | site users: create/update/delete/list, HTTP effect |
-| `auth-whitelist.feature` | 34 | site IP whitelists, `_acl` files, HTTP bypass |
+| `auth-whitelist.feature` | 37 | site IP whitelists, `_acl` files, HTTP bypass, entry validation (AUTH-13/14) |
 | `auth-site-lifecycle.feature` | 6 | site delete/recreate/disable/enable, HTTPS |
 | `auth-global.feature` (`@destructive`) | 31 | global users, global whitelist, merge into site files |
 | `auth-admin-tools.feature` (`@destructive`) | 19 | admin-tools auth, AUTH-8, `ee admin-tools enable` interplay |
-| **Total** | **155** | `@known-bug` 19, `@destructive` 50, `@admin-tools` 2, `@le` 0, `@remote` 0 |
+| `auth-migration.feature` (`@destructive @migration`) | 2 | auth files migration rollback, invalid whitelist entries dropped on upgrade (AUTH-13) |
+| **Total** | **160** | `@known-bug` 11, `@destructive` 52, `@migration` 2, `@admin-tools` 2, `@le` 0, `@remote` 0 |
 
 Tags:
 - `@destructive`: changes the global/admin-tools users or the global whitelist. Before the first step of each such scenario that isn't a "site exists" step (so what `ee site create` initialises in the Background, i.e. admin-tools auth and the frontend-subnet whitelist, is kept) the context snapshots every `auth_users`/`auth_ips` row outside the test sites plus the bytes and modes of `htpasswd/*` and `vhost.d/*_acl`, and saves the snapshot to `/opt/easyengine/.behat-bh-auth-command-auth-snapshot.json` (0600). Afterwards it puts rows and files back exactly (same passwords, files created meanwhile removed) with PDO and the filesystem only, then runs docker-gen, `nginx -t` and `nginx -s reload`, each of which must succeed. The file is deleted only after a successful restore; if it's still there (killed run, failed restore), the next scenario restores it before doing anything else. Scenarios that aren't `@destructive` fail up front if a step runs `ee auth … global`.
@@ -121,13 +122,13 @@ IDs refer to `/root/workspace/issues.md` (section "Wildcard HTTP auth / whitelis
 |---|---|---|
 | AUTH-8 | admin-tools: "Global create keeps the admin-tools auth separate", "Deleting all global auth keeps the admin-tools auth", "Deleting the only named global user leaves no global auth behind" | no (`create_auth()`/`delete()` unchanged) |
 | AUTH-9 | site: "The delete success message names the removed user"; global: "An IP whitelisted globally and on a site appears once…" (the create-when-exists error is asserted as current behaviour in whitelist) | no (messages unchanged; `get_site_whitelist_ips()` still doesn't de-duplicate) |
-| AUTH-13 | whitelist: "An invalid CIDR prefix is rejected instead of breaking nginx" (3 examples) | no |
-| AUTH-14 | whitelist: "A duplicated IP in one create list is stored once" | no |
 | AUTH-15 | whitelist: "Whitelist commands report success" | no |
 | AUTH-16 | global: "A site list works when there is neither global nor admin-tools auth" | no |
 | AUTH-17 | admin-tools: "A rejected global create leaves the admin-tools auth untouched", "Global create with the admin-tools user name is rejected without side effects" | no |
 | AUTH-18 | admin-tools: "The admin-tools password can be rotated with ee auth update global" | no |
 | LOGCMD-8 | usage: "A site URL with scheme and trailing slash is accepted" (site-command `auto_site_name()`) | no (site-command) |
+
+AUTH-13 and AUTH-14 are regular scenarios since the fix on auth-command `fix/validate-whitelist-cidr` (2026-09-27): whitelist "An invalid CIDR prefix is rejected instead of breaking nginx" (5 examples), "An invalid entry stored by an older version is skipped, and can still be deleted", "A duplicated IP in one create list is stored once", and migration "The upgrade removes invalid whitelist entries from existing _acl files". They fail on `upstream/develop` until that branch is merged.
 
 Not covered: AUTH-19 (unreachable from the CLI; fixed in #57), AUTH-21 (cosmetic help text; current messages are asserted as they are). AUTH-20 (`/ee-admin/` unprotected without mailhog) was refuted: every site's nginx container sets `VIRTUAL_PATH=/`, so the proxy always emits the `/ee-admin/` location with the admin-tools file; `@admin-tools` "Admin-tools pages on a site ask for the admin-tools credentials" is a regular (passing) scenario.
 

@@ -33,3 +33,33 @@ Feature: Auth files migration on upgrade
     And a GET request to "http://{PUBLIC_IP}/" with Host "foo.bh-auth-mig-w.test" should return 401
     And a GET request to "http://{PUBLIC_IP}/" with Host "bh-auth-mig-alias.test" should return 401
     And a GET request to "http://{PUBLIC_IP}/" with Host "foo.bh-auth-mig-w.test" as user "bh-mu" with password "bh-mp" should return 200
+
+  Scenario: The upgrade removes invalid whitelist entries from existing _acl files
+    # AUTH-13: an _acl file written by an older version with an entry nginx rejects fails the proxy reload, and the
+    # proxy restart when the upgrade recreates it. The migration drops only those lines; the rows stay stored.
+    Given global http auth is not enabled
+    And the html site "bh-auth-command-mig.test" exists
+    And the site "bh-auth-command-mig.test" has no http auth or whitelist
+    And I run "bin/ee auth create bh-auth-command-mig.test --user=bh-mu --pass=bh-mp"
+    And the command should succeed
+    And the whitelist entry "192.0.2.1/99" of "bh-auth-command-mig.test" was stored unchecked by an older auth-command
+    And the container migration "20260927120000_auth-command_drop_invalid_whitelist_entries_from_acl_files.php" is not recorded
+    And the EasyEngine option "version" is set to "4.12.0"
+    When I run "bin/ee cli info"
+    Then the command should succeed
+    And STDERR should contain:
+      """
+      Removed the invalid whitelist entries '192.0.2.1/99'
+      """
+    And STDERR should not contain:
+      """
+      nginx config test failed
+      """
+    And the file "{EE_ROOT_DIR}/services/nginx-proxy/vhost.d/bh-auth-command-mig.test_acl" should not contain:
+      """
+      192.0.2.1/99
+      """
+    And the migrations table should contain a row with:
+      | migration | 20260927120000_auth-command_drop_invalid_whitelist_entries_from_acl_files.php |
+    And a GET request to "http://{PUBLIC_IP}/" with Host "bh-auth-command-mig.test" should return 401
+    And a GET request to "http://{PUBLIC_IP}/" with Host "bh-auth-command-mig.test" as user "bh-mu" with password "bh-mp" should return 200
