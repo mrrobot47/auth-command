@@ -1080,6 +1080,144 @@ class FeatureContext implements Context
 		$this->assert_http_status( $url, $host, null, null, null, $code, (int) $seconds );
 	}
 
+	/* ----------------------------- Migrations ---------------------------- */
+
+	/** @var array Options changed by a scenario (key => old value or false), restored afterwards. */
+	private $saved_options = [];
+
+	/** @var array Migration rows deleted by a scenario (name => type), restored if still missing. */
+	private $deleted_migrations = [];
+
+	/** @var string|null /etc/hosts before "Docker Hub is unreachable". */
+	private static $hosts_backup;
+
+	/**
+	 * Removes what auth-command releases before the wildcard work never wrote: the files of the
+	 * alias domains and `_wildcard.*`, keeping `<site>` and `<site>_acl`.
+	 *
+	 * @Given the auth files of :site are as an older auth-command wrote them
+	 */
+	public function theAuthFilesAreAsAnOlderAuthCommandWroteThem($site)
+	{
+		self::assert_prefixed_site( $site );
+		$row     = self::site_row( $site );
+		$aliases = empty( $row['alias_domains'] ) ? [] : explode( ',', $row['alias_domains'] );
+		foreach ( $aliases as $alias ) {
+			$name = 0 === strpos( $alias, '*.' ) ? '_wildcard.' . substr( $alias, 2 ) : $alias;
+			if ( '' === $name || false !== strpbrk( $name, "/\\" ) ) {
+				continue;
+			}
+			@unlink( EE_ROOT_DIR . '/services/nginx-proxy/htpasswd/' . $name );
+			@unlink( EE_ROOT_DIR . '/services/nginx-proxy/vhost.d/' . $name . '_acl' );
+		}
+		self::reload_proxy();
+	}
+
+	/**
+	 * @Given the container migration :name is not recorded
+	 */
+	public function theContainerMigrationIsNotRecorded($name)
+	{
+		if ( ! array_key_exists( $name, $this->deleted_migrations ) && self::db_rows( 'SELECT 1 FROM migrations WHERE migration = ?', [ $name ] ) ) {
+			$this->deleted_migrations[ $name ] = 'container';
+		}
+		self::db()->prepare( 'DELETE FROM migrations WHERE migration = ?' )->execute( [ $name ] );
+	}
+
+	/**
+	 * @Given the EasyEngine option :key is set to :value
+	 */
+	public function theEasyEngineOptionIsSetTo($key, $value)
+	{
+		if ( ! array_key_exists( $key, $this->saved_options ) ) {
+			$this->saved_options[ $key ] = self::option( $key );
+		}
+		self::set_option( $key, $this->replace_variables( $value ) );
+	}
+
+	/**
+	 * @Then the EasyEngine option :key should be :value
+	 */
+	public function theEasyEngineOptionShouldBe($key, $value)
+	{
+		$actual = self::option( $key );
+		if ( $this->replace_variables( $value ) !== $actual ) {
+			throw new Exception( "Expected option '$key' to be '$value', got " . var_export( $actual, true ) );
+		}
+	}
+
+	/**
+	 * @Given Docker Hub is unreachable
+	 */
+	public function dockerHubIsUnreachable()
+	{
+		if ( null === self::$hosts_backup ) {
+			self::$hosts_backup = file_get_contents( '/etc/hosts' );
+			register_shutdown_function( [ self::class, 'restoreHosts' ] );
+		}
+		file_put_contents( '/etc/hosts', self::$hosts_backup . "\n127.0.0.1 registry-1.docker.io auth.docker.io index.docker.io\n" );
+		$check = EE::launch( 'timeout 60 docker pull -q busybox:1.36', false, true );
+		if ( 0 === $check->return_code ) {
+			EE::launch( 'docker rmi busybox:1.36', false, true );
+			self::restoreHosts();
+			throw new Exception( 'Blocking Docker Hub in /etc/hosts had no effect (a registry mirror?).' );
+		}
+	}
+
+	/**
+	 * @When Docker Hub is reachable again
+	 */
+	public function dockerHubIsReachableAgain()
+	{
+		self::restoreHosts();
+	}
+
+	public static function restoreHosts()
+	{
+		if ( null !== self::$hosts_backup ) {
+			file_put_contents( '/etc/hosts', self::$hosts_backup );
+			self::$hosts_backup = null;
+		}
+	}
+
+	/**
+	 * @AfterScenario
+	 */
+	public function restoreMigrationState(AfterScenarioScope $scope)
+	{
+		self::restoreHosts();
+		foreach ( $this->saved_options as $key => $value ) {
+			if ( false === $value ) {
+				self::db()->prepare( 'DELETE FROM options WHERE "key" = ?' )->execute( [ $key ] );
+			} else {
+				self::set_option( $key, $value );
+			}
+		}
+		foreach ( $this->deleted_migrations as $name => $type ) {
+			if ( ! self::db_rows( 'SELECT 1 FROM migrations WHERE migration = ?', [ $name ] ) ) {
+				self::db()->prepare( 'INSERT INTO migrations (migration, type, timestamp) VALUES (?, ?, ?)' )->execute( [ $name, $type, date( 'Y-m-d H:i:s' ) ] );
+			}
+		}
+		$this->saved_options      = [];
+		$this->deleted_migrations = [];
+	}
+
+	private static function option($key)
+	{
+		$rows = self::db_rows( 'SELECT value FROM options WHERE "key" = ?', [ $key ] );
+
+		return $rows ? $rows[0]['value'] : false;
+	}
+
+	private static function set_option($key, $value)
+	{
+		if ( false === self::option( $key ) ) {
+			self::db()->prepare( 'INSERT INTO options ("key", value) VALUES (?, ?)' )->execute( [ $key, $value ] );
+		} else {
+			self::db()->prepare( 'UPDATE options SET value = ? WHERE "key" = ?' )->execute( [ $value, $key ] );
+		}
+	}
+
 	/* ------------------------------- Docker ------------------------------ */
 
 	/**
