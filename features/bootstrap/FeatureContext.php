@@ -1156,6 +1156,8 @@ class FeatureContext implements Context
 			register_shutdown_function( [ self::class, 'restoreHosts' ] );
 		}
 		file_put_contents( '/etc/hosts', self::$hosts_backup . "\n127.0.0.1 registry-1.docker.io auth.docker.io index.docker.io\n" );
+		// dockerd's Go resolver re-reads /etc/hosts at most every 5 s.
+		sleep( 6 );
 		$check = EE::launch( 'timeout 60 docker pull -q busybox:1.36', false, true );
 		if ( 0 === $check->return_code ) {
 			EE::launch( 'docker rmi busybox:1.36', false, true );
@@ -1170,6 +1172,7 @@ class FeatureContext implements Context
 	public function dockerHubIsReachableAgain()
 	{
 		self::restoreHosts();
+		sleep( 6 );
 	}
 
 	public static function restoreHosts()
