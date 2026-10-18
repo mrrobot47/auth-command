@@ -61,6 +61,10 @@ use Behat\Gherkin\Node\PyStringNode,
 	Behat\Gherkin\Node\TableNode;
 
 define( 'EE_SITE_ROOT', EE_ROOT_DIR . '/sites' );
+// Only Runner::init_ee() defines it, and the context never runs that.
+if ( ! defined( 'EE_PROXY_TYPE' ) ) {
+	define( 'EE_PROXY_TYPE', 'services_global-nginx-proxy_1' );
+}
 
 class FeatureContext implements Context
 {
