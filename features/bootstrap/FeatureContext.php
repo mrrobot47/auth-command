@@ -22,7 +22,10 @@ if ( 'Darwin' === php_uname( 's' ) ) {
 		$root_alias = '/Users/' . $sys_name;
 	}
 }
-define( 'EE_ROOT_DIR', $root_alias . '/easyengine' );
+// site-command's autoloaded site-command.php may already define it.
+if ( ! defined( 'EE_ROOT_DIR' ) ) {
+	define( 'EE_ROOT_DIR', $root_alias . '/easyengine' );
+}
 
 require_once EE_ROOT . '/php/bootstrap.php';
 
