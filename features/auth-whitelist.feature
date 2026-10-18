@@ -232,21 +232,13 @@ Feature: Site-scoped IP whitelists
       allow 192.0.2.1;
       """
 
-  Scenario: After removing the whole site whitelist the _acl file keeps only global IPs
-    # With a non-empty global whitelist the file is regenerated with the global IPs only (see AUTH-10);
-    # #57 removes the file instead, so this scenario changes when #57 lands.
+  Scenario: Removing the whole site whitelist removes the _acl file
+    # Since #57 (5f12c49) a site without own IPs has no _acl file, so the global default ACL applies.
     Given the frontend subnet is globally whitelisted
     And I run "bin/ee auth create bh-auth-command-3.test --ip=192.0.2.1"
     When I run "bin/ee auth delete bh-auth-command-3.test --ip"
     Then the command should succeed
-    And the file "{EE_ROOT_DIR}/services/nginx-proxy/vhost.d/bh-auth-command-3.test_acl" should not contain:
-      """
-      allow 192.0.2.1;
-      """
-    And the file "{EE_ROOT_DIR}/services/nginx-proxy/vhost.d/bh-auth-command-3.test_acl" should contain:
-      """
-      allow {FRONTEND_SUBNET_IP};
-      """
+    And the file "{EE_ROOT_DIR}/services/nginx-proxy/vhost.d/bh-auth-command-3.test_acl" should not exist
 
   Scenario: Deleting the whitelist of a site with no whitelist is a no-op
     When I run "bin/ee auth delete bh-auth-command-3.test --ip"

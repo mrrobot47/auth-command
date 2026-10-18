@@ -1,6 +1,6 @@
 # auth-command Behat coverage
 
-Base: `upstream/develop` (`234d740`). The wildcard auth work (auth-command #57, `feat/wildcard-auth`) isn't on develop and isn't covered here; the known-bug table says which scenarios flip with it.
+Base: `upstream/develop` (`234d740`). The wildcard auth work (auth-command #57) landed on develop on 2026-09-25 (`7f55d67`); the suite was adapted to it (AUTH-11/AUTH-12 are regular regression scenarios now, and the two file-removal scenarios below follow `5f12c49`). Wildcard-specific behaviour (`*.site`, alias domains) isn't covered here.
 
 Features (scenario counts include expanded outline examples):
 
@@ -65,7 +65,7 @@ Coverage estimate: 54 of 60 inventory items covered (90%). The gaps are items 55
 | 21 | `delete` on site without auth / unknown user / twice | site: "Delete on a site without auth fails", "Delete of an unknown user fails…", "Deleting twice…" |
 | 22 | `delete global [--user]` | global: "Deleting one global user…", "Deleting all global users…", "Deleting global auth when there is none fails", "Deleting an unknown global user fails" |
 | 23 | `delete <site> --ip=<list>` / not-whitelisted IP skipped | whitelist: "Delete removes only the given IPs", "Deleting an IP that is not whitelisted is skipped" |
-| 24 | `delete <site> --ip` (all) | whitelist: "Delete with a bare --ip…", "After removing the whole site whitelist…", "…no whitelist is a no-op", "Delete --ip leaves the auth users alone" |
+| 24 | `delete <site> --ip` (all) | whitelist: "Delete with a bare --ip…", "Removing the whole site whitelist removes the _acl file", "…no whitelist is a no-op", "Delete --ip leaves the auth users alone" |
 | 25 | `delete global --ip=<ip>` / `--ip` (all) | global: "Deleting one global IP…", "Deleting the whole global whitelist…" |
 | 26 | `list <site>` formats table/csv/yaml/json/count | site: "List shows the site users in every format" |
 | 27 | `list <site>` without own users; other sites hidden | site: "List of a site without its own users…", "The site's list does not show other sites' users" |
@@ -92,7 +92,7 @@ Coverage estimate: 54 of 60 inventory items covered (90%). The gaps are items 55
 | 38 | DB rows in `auth_users`/`auth_ips` for every write | throughout (`the auth_users table …` steps) |
 | 39 | per-site htpasswd file contents and password verification | throughout (`the htpasswd file … should accept …`) |
 | 40 | `_acl` file contents (global IPs first, `satisfy any`/`deny all`) | whitelist: "Create a whitelist with one IP", "The site _acl file also carries the global whitelist" |
-| 41 | global users merged into site files; regeneration on global create/update/delete | global: "Global users are merged…", "A site user created after global auth…", "Deleting all site users keeps the global users…", "Updating a global password regenerates…" |
+| 41 | global users merged into site files; regeneration on global create/update/delete | global: "Global users are merged…", "A site user created after global auth…", "Deleting all site users removes the site file and falls back to the global users", "Updating a global password regenerates…" |
 | 42 | uniqueness rules (same site, global vs site, same name on two sites) | site: "Creating the same user twice…", "The same user name can exist on two different sites…"; global: "A global user name cannot reuse…", "A site user name cannot reuse…" |
 | 43 | HTTP: 401 without/wrong creds, 200 with creds, per-site isolation | site: "Create auth with an explicit user…", "Auth on one site does not protect another site" |
 | 44 | HTTP: whitelisted IP / CIDR bypass, removal restores prompt | whitelist: "A whitelisted IP bypasses site auth…", "A whitelisted CIDR range…"; global: "A globally whitelisted client…", "A site whitelist only bypasses global auth on that site" |
@@ -100,7 +100,7 @@ Coverage estimate: 54 of 60 inventory items covered (90%). The gaps are items 55
 | 46 | whitelist alone doesn't restrict access | whitelist: "A whitelist without auth does not restrict access" |
 | 47 | HTTPS vhost protected too | lifecycle: "Auth also protects the HTTPS vhost" |
 | 48 | proxy reload, `nginx -t` stays green | site/whitelist/global: `STDERR should not contain "nginx config test failed"`; usage: "The global nginx-proxy stays up…" |
-| 49 | site delete removes rows and htpasswd (site-command) and `_acl` (AUTH-11) | lifecycle: "Deleting a site removes its auth rows…", `@known-bug` "…removes its whitelist file" |
+| 49 | site delete removes rows and htpasswd (site-command) and `_acl` (AUTH-11, fixed by #57) | lifecycle: "Deleting a site removes its auth rows…", "…removes its whitelist file" |
 | 50 | recreate / disable+enable keep or reset auth correctly | lifecycle: "A site recreated with the same name…", "Auth survives disabling…", "The whitelist survives…" |
 | 51 | admin-tools auth init on `ee site create` (+ frontend whitelist), kept when present, skipped with global auth | admin-tools: "Site create initialises…", "Site create keeps…", "Site create does not add…" |
 | 52 | `ee admin-tools enable` init messages (exists / added) | admin-tools: "ee admin-tools enable reports…", "…creates the admin-tools auth…" |
@@ -121,8 +121,6 @@ IDs refer to `/root/workspace/issues.md` (section "Wildcard HTTP auth / whitelis
 |---|---|---|
 | AUTH-8 | admin-tools: "Global create keeps the admin-tools auth separate", "Deleting all global auth keeps the admin-tools auth", "Deleting the only named global user leaves no global auth behind" | no (`create_auth()`/`delete()` unchanged) |
 | AUTH-9 | site: "The delete success message names the removed user"; global: "An IP whitelisted globally and on a site appears once…" (the create-when-exists error is asserted as current behaviour in whitelist) | no (messages unchanged; `get_site_whitelist_ips()` still doesn't de-duplicate) |
-| AUTH-11 | lifecycle: "Deleting a site removes its whitelist file" | yes (`hooks.php` autoloaded, `remove_auth_files()` removes `_acl`) |
-| AUTH-12 | site: "Passwords with shell metacharacters work end to end" (3 examples) | yes (`dfa56f0` escapes the htpasswd arguments) |
 | AUTH-13 | whitelist: "An invalid CIDR prefix is rejected instead of breaking nginx" (3 examples) | no |
 | AUTH-14 | whitelist: "A duplicated IP in one create list is stored once" | no |
 | AUTH-15 | whitelist: "Whitelist commands report success" | no |
@@ -133,7 +131,7 @@ IDs refer to `/root/workspace/issues.md` (section "Wildcard HTTP auth / whitelis
 
 Not covered: AUTH-19 (unreachable from the CLI; fixed in #57), AUTH-21 (cosmetic help text; current messages are asserted as they are). AUTH-20 (`/ee-admin/` unprotected without mailhog) was refuted: every site's nginx container sets `VIRTUAL_PATH=/`, so the proxy always emits the `/ee-admin/` location with the admin-tools file; `@admin-tools` "Admin-tools pages on a site ask for the admin-tools credentials" is a regular (passing) scenario.
 
-Current-behaviour scenarios that change with #57 (not bugs, but they will need updating when #57 lands): whitelist "After removing the whole site whitelist the _acl file keeps only global IPs" and global "Deleting all site users keeps the global users in the site file" (#57 removes a site's `_acl`/htpasswd file when it has no own entries, `5f12c49`).
+Updated for #57 (2026-09-25, after the first CI run on the new develop, https://github.com/mrrobot47/auth-command/actions/runs/36099143845): AUTH-11 and AUTH-12 passed there and are regular scenarios now; whitelist "Removing the whole site whitelist removes the _acl file" and global "Deleting all site users removes the site file and falls back to the global users" follow `5f12c49` (a site without own entries has no `_acl`/htpasswd file, so the global default files apply).
 
 ## Step definitions
 

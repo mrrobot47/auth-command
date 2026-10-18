@@ -365,11 +365,8 @@ Feature: Site-scoped HTTP auth users
     And the auth_users table should not contain a row with:
       | site_url | bh-auth-command-1.test |
 
-  @known-bug
   Scenario Outline: Passwords with shell metacharacters work end to end
-    # AUTH-12 (passes with #57): user and password are interpolated unquoted into
-    # `docker exec … htpasswd -b<c> <file> <user> <pass>` and the exit status is ignored, so the DB
-    # gets the password while htpasswd gets a mangled one (or none) and "Success" is printed.
+    # AUTH-12 regression (fixed by #57): user and password used to go unquoted into `docker exec … htpasswd`.
     When I run "bin/ee auth create bh-auth-command-1.test --user=bh-meta <pass_arg>"
     Then the command should succeed
     And the htpasswd file "bh-auth-command-1.test" should accept user "bh-meta" with password "<pass>"
