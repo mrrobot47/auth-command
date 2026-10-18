@@ -56,6 +56,7 @@ use Behat\Behat\Context\Context;
 use Behat\Behat\Hook\Scope\AfterFeatureScope;
 use Behat\Behat\Hook\Scope\AfterScenarioScope;
 use Behat\Behat\Hook\Scope\BeforeScenarioScope;
+use Behat\Behat\Hook\Scope\BeforeStepScope;
 
 use Behat\Gherkin\Node\PyStringNode,
 	Behat\Gherkin\Node\TableNode;
@@ -455,10 +456,12 @@ class FeatureContext implements Context
 	/** @var array|null Auth state captured before a @destructive scenario. */
 	private $global_auth_snapshot = null;
 
+	/** @var bool Whether the @destructive snapshot is still to be taken. */
+	private $snapshot_due = false;
+
 	/**
-	 * Puts back a snapshot an interrupted run left behind, then snapshots the auth state before a
-	 * @destructive scenario (and its Background) runs. The snapshot is also written to disk until
-	 * it has been restored, so a killed run or a failed restore is repaired by the next scenario.
+	 * Puts back a snapshot an interrupted run left behind and checks that non-@destructive
+	 * scenarios don't touch global auth.
 	 *
 	 * @BeforeScenario
 	 */
@@ -472,12 +475,28 @@ class FeatureContext implements Context
 			self::restore_auth_state( $pending );
 		}
 
-		if ( in_array( 'destructive', $this->scenario_tags, true ) ) {
-			$this->global_auth_snapshot = self::capture_auth_state();
-			self::write_pending_snapshot( $this->global_auth_snapshot );
-		} else {
+		$this->snapshot_due = in_array( 'destructive', $this->scenario_tags, true );
+		if ( ! $this->snapshot_due ) {
 			self::assert_no_global_auth_commands( $scope );
 		}
+	}
+
+	/**
+	 * Snapshots the auth state of a @destructive scenario before its first step that isn't a
+	 * "site exists" step, so what `ee site create` initialises in the Background (admin-tools auth,
+	 * frontend-subnet whitelist) is kept. The snapshot stays on disk until it has been restored,
+	 * so a killed run or a failed restore is repaired before the next scenario.
+	 *
+	 * @BeforeStep
+	 */
+	public function snapshotBeforeFirstAuthStep(BeforeStepScope $scope)
+	{
+		if ( ! $this->snapshot_due || preg_match( '/^the \w+ site "[^"]+" exists( with flags "[^"]*")?$/', $scope->getStep()->getText() ) ) {
+			return;
+		}
+		$this->snapshot_due         = false;
+		$this->global_auth_snapshot = self::capture_auth_state();
+		self::write_pending_snapshot( $this->global_auth_snapshot );
 	}
 
 	/**
@@ -780,6 +799,19 @@ class FeatureContext implements Context
 		if ( $deleted || file_exists( self::htpasswd_path( 'default' ) ) ) {
 			self::write_htpasswd( 'default', [] );
 			self::reload_proxy();
+		}
+	}
+
+	/**
+	 * Read-only guard for non-destructive features: with global auth, their 401 checks would pass
+	 * because of htpasswd/default and their unauthenticated 200 checks would fail.
+	 *
+	 * @Given global http auth is not enabled
+	 */
+	public function globalHttpAuthIsNotEnabled()
+	{
+		if ( self::db_rows( "SELECT id FROM auth_users WHERE site_url = 'default'" ) || file_exists( self::htpasswd_path( 'default' ) ) ) {
+			throw new Exception( 'Global http auth is enabled (default rows or htpasswd/default); this feature needs it off.' );
 		}
 	}
 
@@ -1194,8 +1226,9 @@ class FeatureContext implements Context
 		if ( ! $ip ) {
 			$ip = trim( (string) shell_exec( "hostname -I | awk '{print $1}'" ) );
 		}
-		if ( ! filter_var( $ip, FILTER_VALIDATE_IP ) ) {
-			throw new Exception( "Could not determine the public IP (got '$ip'); set BEHAT_PUBLIC_IP." );
+		// IPv4 only: an IPv6 address would need brackets in the URLs.
+		if ( ! filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 ) ) {
+			throw new Exception( "Could not determine the public IPv4 address (got '$ip'); set BEHAT_PUBLIC_IP." );
 		}
 
 		return $ip;
