@@ -533,7 +533,8 @@ class FeatureContext implements Context
 		if ( ! is_dir( $dir ) ) {
 			throw new Exception( "Directory $dir does not exist." );
 		}
-		$this->commands[] = EE::launch( $this->replace_variables( $command ), false, true, [], null, $dir );
+		// `cd` sets PWD like a login shell; ee resolves the site from the logical path (app/ is a symlink to the volume).
+		$this->commands[] = EE::launch( 'cd ' . escapeshellarg( $dir ) . ' && ' . $this->replace_variables( $command ), false, true );
 	}
 
 	/**
