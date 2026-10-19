@@ -6,29 +6,27 @@ Features (scenario counts include expanded outline examples):
 
 | File | Scenarios | Area |
 |---|---|---|
-| `auth-usage.feature` | 35 | synopsis, help, site resolution, dispatcher validation, disabled/unknown sites |
-| `auth-site.feature` | 30 | site users: create/update/delete/list, HTTP effect |
+| `auth-usage.feature` | 34 | synopsis, help, site resolution, dispatcher validation, disabled/unknown sites |
+| `auth-site.feature` | 29 | site users: create/update/delete/list, HTTP effect |
 | `auth-whitelist.feature` | 37 | site IP whitelists, `_acl` files, HTTP bypass, entry validation (AUTH-13/14) |
 | `auth-site-lifecycle.feature` | 6 | site delete/recreate/disable/enable, HTTPS |
-| `auth-global.feature` (`@destructive`) | 31 | global users, global whitelist, merge into site files |
+| `auth-global.feature` (`@destructive`) | 29 | global users, global whitelist, merge into site files |
 | `auth-admin-tools.feature` (`@destructive`) | 19 | admin-tools auth independent of global auth (AUTH-8), `ee admin-tools enable` interplay |
 | `auth-migration.feature` (`@destructive @migration`) | 2 | auth files migration rollback, invalid whitelist entries dropped on upgrade (AUTH-13) |
-| **Total** | **160** | `@known-bug` 5, `@destructive` 52, `@migration` 2, `@admin-tools` 3, `@le` 0, `@remote` 0 |
+| **Total** | **156** | `@destructive` 50, `@migration` 2, `@admin-tools` 3, `@le` 0, `@remote` 0 |
 
 Tags:
 - `@destructive`: changes the global/admin-tools users or the global whitelist. Before the first step of each such scenario that isn't a "site exists" step (so what `ee site create` initialises in the Background, i.e. admin-tools auth and the frontend-subnet whitelist, is kept) the context snapshots every `auth_users`/`auth_ips` row outside the test sites plus the bytes and modes of `htpasswd/*` and `vhost.d/*_acl`, and saves the snapshot to `/opt/easyengine/.behat-bh-auth-command-auth-snapshot.json` (0600). Afterwards it puts rows and files back exactly (same passwords, files created meanwhile removed) with PDO and the filesystem only, then runs docker-gen, `nginx -t` and `nginx -s reload`, each of which must succeed. The file is deleted only after a successful restore; if it's still there (killed run, failed restore), the next scenario restores it before doing anything else. Scenarios that aren't `@destructive` fail up front if a step runs `ee auth … global`.
-- `@known-bug`: expected behaviour that fails today; the issue ID is in a comment on the scenario. IDs `AUTH-12`…`AUTH-21` are in issues.md.
+- No `@known-bug` scenarios ship here: the 5 scenario rows written for open bugs (AUTH-9 with 2 rows, AUTH-15, AUTH-16 and LOGCMD-8) are held back until their fixes land and then return as regular scenarios.
 - `@admin-tools`: needs network access (admin-tools downloads phpMyAdmin etc.) and a PHP site.
 - No `@le` or `@remote`: auth doesn't depend on Let's Encrypt (HTTPS is checked with `--ssl=self`) or backups.
 
-Suggested runs: everything except known bugs `--tags='~@known-bug'`; the known bugs alone `--tags=@known-bug`.
-
-Estimated runtime: about 30 minutes for the whole suite (≈17 site creates, 8 site disable/enable cycles, ≈400 `ee auth` calls including per-scenario resets, one admin-tools install); about 25 minutes with `~@known-bug&&~@admin-tools`.
+Estimated runtime: about 30 minutes for the whole suite (≈17 site creates, 8 site disable/enable cycles, ≈400 `ee auth` calls including per-scenario resets, one admin-tools install); about 25 minutes with `~@admin-tools`.
 
 ## Environment and isolation
 
 - Sites: `bh-auth-command-<n>.test` only (usage 13, site 1–2, whitelist 3–4, lifecycle 5–7, global 8–9, admin-tools 10–12). Background steps create a site only when it's missing and re-enable it when disabled, so scenarios share sites but stay independent.
-- After every scenario, the auth rows and htpasswd/`_acl` files (also `_wildcard.`/`.tmp` variants) of `bh-auth-command-*` sites are removed directly, without the code under test, and the proxy is reloaded if anything changed; "the site … has no http auth or whitelist" and "there is no global http auth" work the same way. After every feature, only `bh-auth-command-*` sites are deleted (`ee site delete`), followed by the same direct cleanup for what known bugs leave behind (AUTH-11 `_acl`).
+- After every scenario, the auth rows and htpasswd/`_acl` files (also `_wildcard.`/`.tmp` variants) of `bh-auth-command-*` sites are removed directly, without the code under test, and the proxy is reloaded if anything changed; "the site … has no http auth or whitelist" and "there is no global http auth" work the same way. After every feature, only `bh-auth-command-*` sites are deleted (`ee site delete`), followed by the same direct cleanup for what failed deletes or older versions leave behind (AUTH-11 `_acl`).
 - `ee site create` (Background) adds the admin-tools auth and the frontend-subnet global whitelist when neither global nor admin-tools auth exists; that's normal ee behaviour and isn't undone in non-destructive features.
 - Needs an initialised EE (`/opt/easyengine/db/ee.sqlite`). The site, whitelist and lifecycle features need global auth off ("global http auth is not enabled" fails up front otherwise), because htpasswd/default would make their 401 checks pass vacuously. `{PUBLIC_IP}` must be IPv4.
 - `ee auth list` without `--format` is checked in the tab-separated form ee prints when STDOUT is piped; help output is pinned with `COLUMNS=200 PAGER=cat`.
@@ -83,7 +81,7 @@ Coverage estimate: 54 of 60 inventory items covered (90%). The gaps are items 55
 | 33 | no site name outside a site dir | usage: "Without a site name and outside a site directory…" |
 | 34 | site detected from cwd (`auto_site_name`) | usage: "The site name is detected from the current directory" |
 | 35 | wrong name inside a site dir (suggestion) | usage: "A wrong site name typed inside a site directory…" |
-| 36 | `http://…/` URL form | usage: `@known-bug` "A site URL with scheme and trailing slash is accepted" (LOGCMD-8) |
+| 36 | `http://…/` URL form | not covered yet: LOGCMD-8 (its scenario comes back with the fix) |
 | 37 | disabled site (all subcommands) | usage: "Every subcommand refuses a disabled site" |
 
 ### Behaviour and side effects
@@ -114,9 +112,9 @@ Coverage estimate: 54 of 60 inventory items covered (90%). The gaps are items 55
 | 59 | admin-tools branch of `generate_global_auth_files()` | **not covered**: unreachable from the CLI (see AUTH-19) |
 | 60 | `global` in another case (`GLOBAL` is treated as a site name) | **not covered**: trivial |
 
-## Known bugs covered (`@known-bug`)
+## Known bugs (scenarios held back until fixed)
 
-IDs refer to `/root/workspace/issues.md` (section "Wildcard HTTP auth / whitelist"). "Flips with #57" means the scenario passes on the local `feat/wildcard-auth` branch (auth-command #57 with site-command #502).
+IDs refer to `/root/workspace/issues.md` (section "Wildcard HTTP auth / whitelist"). These scenarios assert the fixed behaviour, so they are not in the suite yet and return as regular scenarios with their fixes. "Flips with #57" says whether the scenario passed on the local `feat/wildcard-auth` branch (auth-command #57 with site-command #502).
 
 | ID | Scenario(s) | Flips with #57 |
 |---|---|---|

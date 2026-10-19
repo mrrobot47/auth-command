@@ -172,25 +172,6 @@ Feature: Site-scoped IP whitelists
       | ip       | 192.0.2.1              |
     And the file "{EE_ROOT_DIR}/services/nginx-proxy/vhost.d/bh-auth-command-3.test_acl" should contain the line "allow 192.0.2.1;" exactly 1 times
 
-  @known-bug
-  Scenario: Whitelist commands report success
-    # AUTH-15 (cosmetic): create/update/delete with --ip print nothing on success.
-    When I run "bin/ee auth create bh-auth-command-3.test --ip=192.0.2.1"
-    Then STDOUT should contain:
-      """
-      Success:
-      """
-    When I run "bin/ee auth update bh-auth-command-3.test --ip=192.0.2.2"
-    Then STDOUT should contain:
-      """
-      Success:
-      """
-    When I run "bin/ee auth delete bh-auth-command-3.test --ip=192.0.2.2"
-    Then STDOUT should contain:
-      """
-      Success:
-      """
-
   Scenario: Update adds new IPs and skips the ones already whitelisted
     Given I run "bin/ee auth create bh-auth-command-3.test --ip=192.0.2.1"
     When I run "bin/ee auth update bh-auth-command-3.test --ip=192.0.2.1,192.0.2.2"

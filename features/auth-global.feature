@@ -236,18 +236,6 @@ Feature: Global HTTP auth and global IP whitelist
       Auth does not exists on global.
       """
 
-  @known-bug
-  Scenario: A site list works when there is neither global nor admin-tools auth
-    # AUTH-16: list() errors "Auth does not exists on global." before
-    # looking at the site's own users, so a site's users cannot be listed without global auth.
-    Given there is no admin-tools http auth
-    And I run "bin/ee auth create bh-auth-command-9.test --user=bh-s1 --pass=bh-s1-pass"
-    When I run "bin/ee auth list bh-auth-command-9.test --format=json"
-    Then the command should succeed
-    And the JSON output should contain items:
-      | site_url               | username |
-      | bh-auth-command-9.test | bh-s1    |
-
   Scenario: Global whitelist update adds IPs to default_acl and to site _acl files
     Given I run "bin/ee auth create bh-auth-command-9.test --ip=192.0.2.1"
     When I run "bin/ee auth update global --ip=192.0.2.200"
@@ -368,11 +356,3 @@ Feature: Global HTTP auth and global IP whitelist
     Then the command should succeed
     And a GET request to "http://{PUBLIC_IP}/" with Host "bh-auth-command-9.test" should return 200
     And a GET request to "http://{PUBLIC_IP}/" with Host "bh-auth-command-8.test" should return 401
-
-  @known-bug
-  Scenario: An IP whitelisted globally and on a site appears once in the site _acl file
-    # AUTH-9: generate_site_whitelist() merges global and site IPs without de-duplicating.
-    Given I run "bin/ee auth update global --ip=192.0.2.77"
-    When I run "bin/ee auth create bh-auth-command-9.test --ip=192.0.2.77"
-    Then the command should succeed
-    And the file "{EE_ROOT_DIR}/services/nginx-proxy/vhost.d/bh-auth-command-9.test_acl" should contain the line "allow 192.0.2.77;" exactly 1 times

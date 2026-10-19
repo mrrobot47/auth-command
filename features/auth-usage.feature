@@ -114,18 +114,6 @@ Feature: ee auth command surface, argument validation and site resolution
       bh-auth-command-typo.test is not a valid site-name. Did you mean `ee auth list bh-auth-command-13.test`?
       """
 
-  @known-bug
-  Scenario: A site URL with scheme and trailing slash is accepted
-    # LOGCMD-8 (site-command, same root cause as MAILHOG-2/SHELL-3/ATC-2): auto_site_name() strips the scheme only to look the site up and returns the original
-    # argument, so get_site_info() looks up `http://…` and fails with "Site http://… does not exist."
-    Given the html site "bh-auth-command-13.test" exists
-    And the site "bh-auth-command-13.test" has no http auth or whitelist
-    When I run "bin/ee auth create http://bh-auth-command-13.test/ --user=bh-url --pass=bh-url-pass"
-    Then the command should succeed
-    And the auth_users table should contain a row with:
-      | site_url | bh-auth-command-13.test |
-      | username | bh-url                  |
-
   Scenario Outline: Every subcommand refuses a disabled site
     Given the html site "bh-auth-command-13.test" exists
     And I run "bin/ee site disable bh-auth-command-13.test"

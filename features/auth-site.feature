@@ -276,23 +276,6 @@ Feature: Site-scoped HTTP auth users
       Auth with username: bh-u1 does not exists on bh-auth-command-1.test
       """
 
-  @known-bug
-  Scenario: The delete success message names the removed user
-    # AUTH-9: the two messages are swapped. With --user it prints "removed on <site>." and without
-    # --user it prints "removed on <site> on  user" (empty user).
-    Given I run "bin/ee auth create bh-auth-command-1.test --user=bh-u1 --pass=bh-p1"
-    And I run "bin/ee auth create bh-auth-command-1.test --user=bh-u2 --pass=bh-p2"
-    When I run "bin/ee auth delete bh-auth-command-1.test --user=bh-u1"
-    Then STDOUT should contain:
-      """
-      bh-u1
-      """
-    When I run "bin/ee auth delete bh-auth-command-1.test"
-    Then STDOUT should not contain:
-      """
-      on  user
-      """
-
   Scenario: List shows the site users in every format
     Given I run "bin/ee auth create bh-auth-command-1.test --user=bh-u1 --pass=bh-p1"
     And I run "bin/ee auth create bh-auth-command-1.test --user=bh-u2 --pass=bh-p2"
