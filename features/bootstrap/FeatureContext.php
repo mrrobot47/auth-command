@@ -1881,11 +1881,22 @@ class FeatureContext implements Context
 			"docker exec $proxy nginx -t",
 			"docker exec $proxy nginx -s reload",
 		];
-		foreach ( $steps as $command ) {
-			$result = EE::launch( $command, false, true );
-			if ( 0 !== $result->return_code ) {
+		// The proxy's own docker-gen watcher can be rewriting default.conf at the same time, so nginx -t may
+		// read a truncated file; retry the whole sequence a few times before giving up.
+		for ( $attempt = 1; ; $attempt++ ) {
+			foreach ( $steps as $command ) {
+				$result = EE::launch( $command, false, true );
+				if ( 0 !== $result->return_code ) {
+					break;
+				}
+			}
+			if ( 0 === $result->return_code ) {
+				return;
+			}
+			if ( $attempt >= 5 ) {
 				throw new Exception( "Reloading the proxy after an auth state change failed.\n" . self::describe( $result ) );
 			}
+			sleep( 2 );
 		}
 	}
 }
