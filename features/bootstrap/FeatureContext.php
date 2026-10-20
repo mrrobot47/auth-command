@@ -457,6 +457,9 @@ class FeatureContext implements Context
 	/** @var array|null Auth state captured before a @destructive scenario. */
 	private $global_auth_snapshot = null;
 
+	/** @var string[] Real passwords seen in auth_users, masked in failure reports. */
+	private static $known_passwords = [];
+
 	/** @var bool Whether the @destructive snapshot is still to be taken. */
 	private $snapshot_due = false;
 
@@ -469,6 +472,7 @@ class FeatureContext implements Context
 	public function rememberScenarioState(BeforeScenarioScope $scope)
 	{
 		$this->scenario_tags = array_merge( $scope->getFeature()->getTags(), $scope->getScenario()->getTags() );
+		self::remember_passwords();
 
 		$pending = self::read_pending_snapshot();
 		if ( null !== $pending ) {
@@ -1276,11 +1280,49 @@ class FeatureContext implements Context
 	{
 		return sprintf(
 			"Command: %s\nExit code: %s\nSTDOUT:\n%s\nSTDERR:\n%s",
-			$result->command,
+			self::redact( $result->command ),
 			$result->return_code,
-			self::strip_colors( $result->stdout ),
-			self::strip_colors( $result->stderr )
+			self::redact( self::strip_colors( $result->stdout ) ),
+			self::redact( self::strip_colors( $result->stderr ) )
 		);
+	}
+
+	/**
+	 * Passwords of auth rows outside this suite's sites (global, admin-tools, other sites) are real and stay
+	 * valid after the restore, so failure reports mask every one seen during the run.
+	 */
+	private static function remember_passwords(?array $rows = null)
+	{
+		if ( null === $rows ) {
+			// Opening a missing SQLite file would create an empty EE database.
+			if ( ! is_file( EE_ROOT_DIR . '/db/ee.sqlite' ) ) {
+				return;
+			}
+			try {
+				$rows = self::db_rows( 'SELECT password FROM auth_users WHERE site_url NOT LIKE ?', [ self::SITE_PREFIX . '%' ] );
+			} catch ( \Throwable $e ) {
+				return;
+			}
+		}
+		foreach ( $rows as $row ) {
+			if ( isset( $row['password'] ) && '' !== (string) $row['password'] ) {
+				self::$known_passwords[ 'p' . $row['password'] ] = (string) $row['password'];
+			}
+		}
+	}
+
+	private static function redact($text)
+	{
+		self::remember_passwords();
+		$map = [];
+		foreach ( self::$known_passwords as $password ) {
+			$map[ $password ] = '******';
+			// As it appears inside JSON output.
+			$map[ substr( (string) json_encode( $password ), 1, -1 ) ] = '******';
+		}
+		unset( $map[''] );
+
+		return $map ? strtr( (string) $text, $map ) : (string) $text;
 	}
 
 	private static function strip_colors($text)
@@ -1480,6 +1522,12 @@ class FeatureContext implements Context
 	{
 		self::assert_identifier( $table );
 		$rows = self::db_rows( "SELECT * FROM $table" );
+		foreach ( $rows as &$row ) {
+			if ( isset( $row['password'] ) && ( ! isset( $row['site_url'] ) || 0 !== strpos( (string) $row['site_url'], self::SITE_PREFIX ) ) ) {
+				$row['password'] = '******';
+			}
+		}
+		unset( $row );
 
 		return "Rows in $table:\n" . implode( "\n", array_map( 'json_encode', $rows ) );
 	}
@@ -1739,6 +1787,7 @@ class FeatureContext implements Context
 			'auth_ips'   => self::db_rows( 'SELECT id, site_url, ip FROM auth_ips WHERE site_url NOT LIKE ? ORDER BY id', [ $like ] ),
 			'files'      => [ 'htpasswd' => [], 'acl' => [] ],
 		];
+		self::remember_passwords( $state['auth_users'] );
 		foreach ( self::auth_files( false ) as $kind => $files ) {
 			foreach ( $files as $name => $path ) {
 				$content = file_get_contents( $path );
