@@ -35,7 +35,7 @@ Feature: Auth files migration on upgrade
     And a GET request to "http://{PUBLIC_IP}/" with Host "foo.bh-auth-mig-w.test" as user "bh-mu" with password "bh-mp" should return 200
 
   Scenario: The upgrade removes invalid whitelist entries from existing _acl files
-    # AUTH-13: an _acl file written by an older version with an entry nginx rejects fails the proxy reload, and the
+    # Fixed by EasyEngine/auth-command#59: an _acl file written by an older version with an entry nginx rejects fails the proxy reload, and the
     # proxy restart when the upgrade recreates it. The migration drops only those lines; the rows stay stored.
     # An entry nginx accepts, like a prefix with a leading zero, is kept in its normalized form.
     Given global http auth is not enabled

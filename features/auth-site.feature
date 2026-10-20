@@ -349,7 +349,7 @@ Feature: Site-scoped HTTP auth users
       | site_url | bh-auth-command-1.test |
 
   Scenario Outline: Passwords with shell metacharacters work end to end
-    # AUTH-12 regression (fixed by #57): user and password used to go unquoted into `docker exec … htpasswd`.
+    # Regression check (fixed by EasyEngine/auth-command#57): user and password used to go unquoted into `docker exec … htpasswd`.
     When I run "bin/ee auth create bh-auth-command-1.test --user=bh-meta <pass_arg>"
     Then the command should succeed
     And the htpasswd file "bh-auth-command-1.test" should accept user "bh-meta" with password "<pass>"

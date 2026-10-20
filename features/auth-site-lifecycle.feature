@@ -20,7 +20,7 @@ Feature: HTTP auth across the site lifecycle
     And the file "{EE_ROOT_DIR}/services/nginx-proxy/htpasswd/bh-auth-command-5.test" should not exist
 
   Scenario: Deleting a site removes its whitelist file
-    # AUTH-11 regression (fixed by #57): the site-delete cleanup hook wasn't autoloaded, so vhost.d/<site>_acl was left behind.
+    # Regression check (fixed by EasyEngine/auth-command#57): the site-delete cleanup hook wasn't autoloaded, so vhost.d/<site>_acl was left behind.
     Given the html site "bh-auth-command-5.test" exists
     And the site "bh-auth-command-5.test" has no http auth or whitelist
     And I run "bin/ee auth create bh-auth-command-5.test --ip=192.0.2.1"

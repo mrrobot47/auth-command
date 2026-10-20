@@ -62,7 +62,7 @@ Feature: Site-scoped IP whitelists
       | 2001:db8::1     |
 
   Scenario: Create fails when the site already has a whitelist
-    # AUTH-9 lists this as a usability issue; the current behaviour is an error pointing to update.
+    # A known usability issue; the current behaviour is an error pointing to update.
     Given I run "bin/ee auth create bh-auth-command-3.test --ip=192.0.2.1"
     When I run "bin/ee auth create bh-auth-command-3.test --ip=192.0.2.2"
     Then the command should fail
@@ -103,7 +103,7 @@ Feature: Site-scoped IP whitelists
       | site_url | bh-auth-command-3.test |
 
   Scenario Outline: An invalid CIDR prefix is rejected instead of breaking nginx
-    # AUTH-13: only the address part before "/" used to be validated, so the prefix was written verbatim
+    # Fixed by EasyEngine/auth-command#59: only the address part before "/" used to be validated, so the prefix was written verbatim
     # into the _acl file, `nginx -t` failed and every later proxy reload (for all sites) was skipped until the
     # entry was removed. The site user makes the proxy include the _acl file; the context removes it (and
     # reloads) after the scenario.
@@ -131,7 +131,7 @@ Feature: Site-scoped IP whitelists
       | 2001:db8:1:2:3:4:5:: |
 
   Scenario: An invalid entry stored by an older version is skipped, and can still be deleted
-    # AUTH-13 safety net: rows stored before the fix must not end up in the _acl file nginx loads.
+    # Safety net for EasyEngine/auth-command#59: rows stored before the fix must not end up in the _acl file nginx loads.
     Given I run "bin/ee auth create bh-auth-command-3.test --user=bh-u1 --pass=bh-p1"
     And the whitelist entry "192.0.2.1/99" of "bh-auth-command-3.test" was stored unchecked by an older auth-command
     When I run "bin/ee auth update bh-auth-command-3.test --ip=192.0.2.5"
@@ -159,7 +159,7 @@ Feature: Site-scoped IP whitelists
       | ip       | 192.0.2.5              |
 
   Scenario: A duplicated IP in one create list is stored once
-    # AUTH-14: create_whitelist() used to insert every entry, so the UNIQUE(site_url, ip) constraint threw an
+    # Fixed by EasyEngine/auth-command#59: create_whitelist() used to insert every entry, so the UNIQUE(site_url, ip) constraint threw an
     # uncaught PDOException after the first row was written, and the _acl file was never generated.
     When I run "bin/ee auth create bh-auth-command-3.test --ip=192.0.2.1,192.0.2.1"
     Then the command should succeed

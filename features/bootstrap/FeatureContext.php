@@ -1123,7 +1123,7 @@ class FeatureContext implements Context
 	}
 
 	/**
-	 * Stores a whitelist entry unchecked, as auth-command before AUTH-13 did, and writes the site's _acl file with it
+	 * Stores a whitelist entry unchecked, as auth-command before EasyEngine/auth-command#59 did, and writes the site's _acl file with it
 	 * the same way. No reload: nginx would reject the file.
 	 *
 	 * @Given the whitelist entry :ip of :site was stored unchecked by an older auth-command
@@ -1700,7 +1700,7 @@ class FeatureContext implements Context
 			self::ee( 'site delete ' . escapeshellarg( $row['site_url'] ) . ' --yes' );
 		}
 
-		// Leftovers of known bugs (AUTH-11: site delete keeps the _acl file) and of failed deletes.
+		// Leftovers of older versions (site delete kept the _acl file before EasyEngine/auth-command#57) and of failed deletes.
 		if ( self::reset_test_sites_auth() ) {
 			self::reload_proxy();
 		}

@@ -3,7 +3,7 @@ Feature: Admin-tools auth and its interplay with global auth
   The admin-tools auth is a `default_admin_tools` row (user `easyengine`) plus
   htpasswd/default_admin_tools, created by init_global_admin_tools_auth() on `ee site create`,
   `ee admin-tools enable` and `ee mailhog enable` when no global auth exists. `ee auth … global`
-  never changes it (AUTH-8). The context restores the global and admin-tools state after each scenario.
+  never changes it. The context restores the global and admin-tools state after each scenario.
 
   Background:
     Given the html site "bh-auth-command-12.test" exists
@@ -123,7 +123,7 @@ Feature: Admin-tools auth and its interplay with global auth
     And the htpasswd file "default_admin_tools" should contain user "easyengine"
 
   Scenario: Global create keeps the admin-tools auth separate
-    # AUTH-8: create_auth() used to move the admin-tools user into the global auth.
+    # Fixed by EasyEngine/auth-command#60: create_auth() used to move the admin-tools user into the global auth.
     Given there is no global http auth
     And the admin-tools http auth exists
     When I run "bin/ee auth list global --format=json"
@@ -144,7 +144,7 @@ Feature: Admin-tools auth and its interplay with global auth
       | Global Auth      | bh-g1      |
 
   Scenario: Deleting all global auth keeps the admin-tools auth
-    # AUTH-8: `ee auth delete global` used to delete the absorbed admin-tools row too.
+    # Fixed by EasyEngine/auth-command#60: `ee auth delete global` used to delete the absorbed admin-tools row too.
     Given no site has admin-tools or mailhog enabled
     And there is no global http auth
     And the admin-tools http auth exists
@@ -156,7 +156,7 @@ Feature: Admin-tools auth and its interplay with global auth
     And the htpasswd file "default_admin_tools" should contain user "easyengine"
 
   Scenario: Deleting the only named global user leaves no global auth behind
-    # AUTH-8: the absorbed `easyengine` row used to stay under `default`, keeping a global prompt on every site.
+    # Fixed by EasyEngine/auth-command#60: the absorbed `easyengine` row used to stay under `default`, keeping a global prompt on every site.
     Given there is no global http auth
     And the admin-tools http auth exists
     And I run "bin/ee auth create global --user=bh-g1 --pass=bh-g1-pass"
@@ -167,7 +167,7 @@ Feature: Admin-tools auth and its interplay with global auth
     And a GET request to "http://{PUBLIC_IP}/" with Host "bh-auth-command-12.test" should return 200
 
   Scenario: A rejected global create leaves the admin-tools auth untouched
-    # AUTH-17: create_auth() used to convert the admin-tools row before Auth::create() validated the user name.
+    # Fixed by EasyEngine/auth-command#60: create_auth() used to convert the admin-tools row before Auth::create() validated the user name.
     Given there is no global http auth
     And the admin-tools http auth exists
     And I run "bin/ee auth create bh-auth-command-12.test --user=bh-dupe --pass=bh-dupe-pass"
@@ -184,7 +184,7 @@ Feature: Admin-tools auth and its interplay with global auth
       | site_url | default |
 
   Scenario: A global user may be called like the admin-tools user and stays separate from it
-    # AUTH-17: the admin-tools row used to be converted first, so validation rejected `easyengine` as a duplicate of itself.
+    # Fixed by EasyEngine/auth-command#60: the admin-tools row used to be converted first, so validation rejected `easyengine` as a duplicate of itself.
     Given there is no global http auth
     And the admin-tools http auth exists
     When I run "bin/ee auth list global --format=json"
@@ -202,7 +202,7 @@ Feature: Admin-tools auth and its interplay with global auth
     And the htpasswd file "default_admin_tools" should accept user "easyengine" with password "{ADMIN_PASS}"
 
   Scenario: The admin-tools password can be rotated with ee auth update global
-    # AUTH-18: the help example `ee auth update global --user=easyengine` used to fail, as update only looked at `default` rows.
+    # Fixed by EasyEngine/auth-command#60: the help example `ee auth update global --user=easyengine` used to fail, as update only looked at `default` rows.
     Given there is no global http auth
     And the admin-tools http auth exists
     When I run "bin/ee auth update global --user=easyengine --pass=bh-new-admin"
@@ -211,7 +211,7 @@ Feature: Admin-tools auth and its interplay with global auth
 
   @admin-tools
   Scenario: Deleting all global auth keeps the admin-tools password while a site uses admin-tools
-    # AUTH-8: this used to replace the admin-tools user with a new random password.
+    # Fixed by EasyEngine/auth-command#60: this used to replace the admin-tools user with a new random password.
     Given the php site "bh-auth-command-11.test" exists
     And there is no global http auth
     And the admin-tools http auth exists
@@ -260,7 +260,7 @@ Feature: Admin-tools auth and its interplay with global auth
   Scenario: Admin-tools pages on a site ask for the admin-tools credentials
     # Needs network access (admin-tools downloads phpMyAdmin and friends). Every site's nginx
     # container sets VIRTUAL_PATH=/, so the proxy always emits the /ee-admin/ location with
-    # htpasswd/default_admin_tools (the suspected AUTH-20 was refuted).
+    # htpasswd/default_admin_tools (a suspected gap there was refuted).
     Given the php site "bh-auth-command-11.test" exists
     And there is no global http auth
     And the admin-tools http auth exists
