@@ -1546,19 +1546,37 @@ class FeatureContext implements Context
 	private function verify_htpasswd($name, $user, $pass)
 	{
 		$name = $this->replace_variables( $name );
+		$pass = $this->replace_variables( $pass );
 		self::read_file( self::htpasswd_path( $name ) );
 
-		return EE::launch(
+		// The admin-tools password is the machine's real one: keep it out of ee.log and failure reports.
+		$secrets = [ escapeshellarg( $pass ), $pass ];
+		$result  = EE::launch(
 			sprintf(
 				'docker exec %s htpasswd -vb %s %s %s',
 				escapeshellarg( EE_PROXY_TYPE ),
 				escapeshellarg( '/etc/nginx/htpasswd/' . $name ),
 				escapeshellarg( $this->replace_variables( $user ) ),
-				escapeshellarg( $this->replace_variables( $pass ) )
+				escapeshellarg( $pass )
 			),
 			false,
-			true
+			true,
+			$secrets
 		);
+		$result->command = self::mask( $result->command, $secrets );
+
+		return $result;
+	}
+
+	private static function mask($text, array $secrets)
+	{
+		foreach ( $secrets as $secret ) {
+			if ( '' !== (string) $secret ) {
+				$text = str_replace( (string) $secret, '******', $text );
+			}
+		}
+
+		return $text;
 	}
 
 	private function assert_http_status($url, $host, $resolve_ip, $user, $pass, $code, $timeout = self::HTTP_SETTLE_SECONDS)
@@ -1581,10 +1599,15 @@ class FeatureContext implements Context
 		}
 		$args[]  = $url;
 		$command = 'curl ' . implode( ' ', array_map( 'escapeshellarg', $args ) );
+		$secrets = [];
+		if ( null !== $user ) {
+			$credential = $this->replace_variables( $user ) . ':' . $this->replace_variables( $pass );
+			$secrets    = [ escapeshellarg( $credential ), $credential, $this->replace_variables( $pass ) ];
+		}
 
 		$deadline = time() + $timeout;
 		do {
-			$result = EE::launch( $command, false, true );
+			$result = EE::launch( $command, false, true, $secrets );
 			$lines  = explode( "\n", rtrim( $result->stdout ) );
 			$actual = array_pop( $lines );
 			if ( (string) $actual === (string) $code ) {
