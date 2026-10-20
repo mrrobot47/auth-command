@@ -44,7 +44,7 @@ Feature: Auth files migration on upgrade
     And I run "bin/ee auth create bh-auth-command-mig.test --user=bh-mu --pass=bh-mp"
     And the command should succeed
     And the whitelist entry "192.0.2.1/99" of "bh-auth-command-mig.test" was stored unchecked by an older auth-command
-    And the whitelist entry "192.0.2.0/08" of "bh-auth-command-mig.test" was stored unchecked by an older auth-command
+    And the whitelist entry "192.0.2.0/024" of "bh-auth-command-mig.test" was stored unchecked by an older auth-command
     And the container migration "20260927120000_auth-command_drop_invalid_whitelist_entries_from_acl_files.php" is not recorded
     And the EasyEngine option "version" is set to "4.12.0"
     When I run "bin/ee cli info"
@@ -61,7 +61,7 @@ Feature: Auth files migration on upgrade
       """
       192.0.2.1/99
       """
-    And the file "{EE_ROOT_DIR}/services/nginx-proxy/vhost.d/bh-auth-command-mig.test_acl" should contain the line "allow 192.0.2.0/8;" exactly 1 times
+    And the file "{EE_ROOT_DIR}/services/nginx-proxy/vhost.d/bh-auth-command-mig.test_acl" should contain the line "allow 192.0.2.0/24;" exactly 1 times
     And the migrations table should contain a row with:
       | migration | 20260927120000_auth-command_drop_invalid_whitelist_entries_from_acl_files.php |
     And a GET request to "http://{PUBLIC_IP}/" with Host "bh-auth-command-mig.test" should return 401

@@ -141,7 +141,7 @@ class FeatureContext implements Context
 	 */
 	public function iRun($command)
 	{
-		$this->commands[] = EE::launch($this->replace_variables($command), false, true);
+		$this->commands[] = EE::launch( $this->replace_variables( $command ), false, true, self::secret_values() );
 	}
 
 	/**
@@ -536,7 +536,7 @@ class FeatureContext implements Context
 			throw new Exception( "Directory $dir does not exist." );
 		}
 		// `cd` sets PWD like a login shell; ee resolves the site from the logical path (app/ is a symlink to the volume).
-		$this->commands[] = EE::launch( 'cd ' . escapeshellarg( $dir ) . ' && ' . $this->replace_variables( $command ), false, true );
+		$this->commands[] = EE::launch( 'cd ' . escapeshellarg( $dir ) . ' && ' . $this->replace_variables( $command ), false, true, self::secret_values() );
 	}
 
 	/**
@@ -1311,6 +1311,16 @@ class FeatureContext implements Context
 		}
 	}
 
+	/**
+	 * For EE::launch()'s obfuscation: `ee auth list` prints these in formats core's own masking doesn't cover.
+	 */
+	private static function secret_values()
+	{
+		self::remember_passwords();
+
+		return array_values( self::$known_passwords );
+	}
+
 	private static function redact($text)
 	{
 		self::remember_passwords();
@@ -1455,7 +1465,7 @@ class FeatureContext implements Context
 
 	private static function ee($args)
 	{
-		return EE::launch( escapeshellarg( self::ee_bin() ) . ' ' . $args, false, true );
+		return EE::launch( escapeshellarg( self::ee_bin() ) . ' ' . $args, false, true, self::secret_values() );
 	}
 
 	private static function ee_or_fail($args)
@@ -1932,7 +1942,8 @@ class FeatureContext implements Context
 					escapeshellarg( $row['password'] )
 				),
 				false,
-				true
+				true,
+				[ $row['password'] ]
 			);
 			if ( 0 !== $result->return_code ) {
 				throw new Exception( "Could not write htpasswd/$name.\n" . self::describe( $result ) );
