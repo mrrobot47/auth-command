@@ -13,6 +13,10 @@ Feature: Auth files migration on upgrade
     And the auth files of "bh-auth-command-mig.test" are as an older auth-command wrote them
     And the container migration "20260924120000_auth-command_regenerate_site_auth_files.php" is not recorded
     And the EasyEngine option "version" is set to "4.12.0"
+    # Since 4.14.0 the upgrade pulls only images a container runs on an older tag, so with every image current nothing is pulled
+    # and an unreachable registry can't fail it. Run the proxy on an older local tag of the same image so the upgrade must pull.
+    When I run 'cd {EE_ROOT_DIR}/services && img=$(docker inspect -f {{.Config.Image}} services_global-nginx-proxy_1) && docker tag "$img" easyengine/nginx-proxy:v4.13.0 && sed -i "s|image: $img|image: easyengine/nginx-proxy:v4.13.0|" docker-compose.yml && grep -q "image: easyengine/nginx-proxy:v4.13.0" docker-compose.yml && docker-compose -f docker-compose.yml up -d global-nginx-proxy && docker ps --format {{.Image}} | grep -x easyengine/nginx-proxy:v4.13.0'
+    Then the command should succeed
     And Docker Hub is unreachable
     When I run "bin/ee cli info"
     Then the command should fail
